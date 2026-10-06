@@ -12,14 +12,17 @@ export const CONF_ORDER = ["SEC", "Big Ten", "ACC", "Big 12", "American Athletic
 export const FORMATS = ["top2", "divisions", "first", "none"];
 
 export const DEF_SETTINGS = {N: 10000, seed: 1, hfa: 2.5, gsd: 13.5, rsd: 3, source: "auto", fcs: -20, priorW: 3, cap: 28};
-export const DEF_CFP = {field: 12, byes: 4, autoBids: 5, lossPen: 6, champBonus: 3, sosW: 0.4, indSD: 3, forgive: true};
+// model "sor": committee score = rating + sorW × strength of record.
+// model "losses": rating − lossPen × losses + sosW × average opponent rating.
+export const DEF_CFP = {field: 12, byes: 4, autoBids: 5, model: "sor", sorW: 6, lossPen: 6, champBonus: 3, sosW: 0.4, indSD: 3, forgive: true};
+export const CFP_MODELS = ["sor", "losses"];
 export const SORT_KEYS = ["name", "conf", "rating", "rec", "proj", "projc", "t2", "ch", "cfp", "bye", "natl"];
 
 // [min, max, integer?]
 const LIMITS = {
   N: [100, 200000, true], seed: [0, 2147483647, true], hfa: [-10, 15], gsd: [0, 40], rsd: [0, 20], fcs: [-60, 30],
   priorW: [0.5, 50], cap: [1, 100], field: [2, 32, true], byes: [0, 31, true], autoBids: [0, 32, true],
-  lossPen: [0, 40], champBonus: [-20, 40], sosW: [-5, 5], indSD: [0, 30]
+  lossPen: [0, 40], sorW: [0, 30], champBonus: [-20, 40], sosW: [-5, 5], indSD: [0, 30]
 };
 const RATING_MAX = 80;
 
@@ -31,6 +34,13 @@ export function phi(x) {
   const t = 1 / (1 + 0.2316419 * Math.abs(x)), d = 0.3989423 * Math.exp(-x * x / 2);
   const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
   return x > 0 ? 1 - p : p;
+}
+
+// Chance a team rated `bench` beats an opponent rated `opp`, with `adj`
+// points of home field (negative on the road).
+export function benchWinProb(bench, opp, adj, sd) {
+  const x = bench - opp + adj;
+  return sd > 0 ? phi(x / sd) : x > 0 ? 1 : x < 0 ? 0 : 0.5;
 }
 
 export function computeWeek(games) {
@@ -131,6 +141,7 @@ export function defaultState() {
 
 function cleanValue(k, v, def) {
   if (typeof def === "boolean") return typeof v === "boolean" ? v : def;
+  if (k === "model") return CFP_MODELS.includes(v) ? v : def;
   if (k === "source") return typeof v === "string" && (v === "auto" || SOURCE_RE.test(v)) ? v : def;
   const n = typeof v === "string" && !v.trim() ? NaN : Number(v);
   if (!Number.isFinite(n)) return def;
@@ -305,7 +316,7 @@ export function prepare(season, state, eff = effectiveRatings(season, state)) {
       const w = g.hp > g.ap ? h : a, l = g.hp > g.ap ? a : h;
       if (w >= 0) W0[w]++;
       if (l >= 0) L0[l]++;
-      if (champ) confs[confOf[h]].champDone = {w, l};
+      if (champ) confs[confOf[h]].champDone = {w, l, home: g.neutral ? -1 : h};
       else if (conf) { CW0[w]++; CL0[l]++; wins0[w * n + l]++; }
     } else {
       if (champ) confs[confOf[h]].champGame = rem.length;
@@ -319,12 +330,25 @@ export function prepare(season, state, eff = effectiveRatings(season, state)) {
     return Int16Array.from(o);
   });
   const sos = Float64Array.from(teams, (_, i) => oppCnt[i] ? oppSum[i] / oppCnt[i] : 0);
+
+  // Strength of record: the wins a bubble team (the field-size-th best
+  // rating) would expect against each team's regular-season schedule, at the
+  // same sites. Title games are added during the simulation.
+  const bench = [...R].sort((a, b) => b - a)[Math.min(C.field, n) - 1];
+  const expW = new Float64Array(n);
+  for (const g of season.games) {
+    const h = g.home == null ? -1 : idx.get(g.home), a = g.away == null ? -1 : idx.get(g.away);
+    if (g.champ && h >= 0 && a >= 0 && confOf[h] === confOf[a]) continue;
+    const adj = g.neutral ? 0 : S.hfa;
+    if (h >= 0) expW[h] += benchWinProb(bench, a >= 0 ? R[a] : S.fcs, adj, S.gsd);
+    if (a >= 0) expW[a] += benchWinProb(bench, h >= 0 ? R[h] : S.fcs, -adj, S.gsd);
+  }
   const forced = Int8Array.from(remIds, id => state.forced[id] || 0);
   let maxConfSize = 0, maxConfG = 0;
   for (const c of confs) if (c.format !== "none") {
     maxConfSize = Math.max(maxConfSize, c.members.length);
     for (const i of c.members) maxConfG = Math.max(maxConfG, confG[i]);
   }
-  return {n, confs, confOf, R, W0, L0, CW0, CL0, wins0, G2, confG, confOpps, sos, rem, remIds, forced, maxConfSize, maxConfG,
-    params: {N: S.N, seed: S.seed, hfa: S.hfa, gsd: S.gsd, rsd: S.rsd, fcs: S.fcs, ...C}};
+  return {n, confs, confOf, R, W0, L0, CW0, CL0, wins0, G2, confG, confOpps, sos, expW, rem, remIds, forced, maxConfSize, maxConfG,
+    params: {N: S.N, seed: S.seed, hfa: S.hfa, gsd: S.gsd, rsd: S.rsd, fcs: S.fcs, bench, ...C}};
 }

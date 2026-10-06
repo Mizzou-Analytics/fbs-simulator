@@ -205,3 +205,15 @@ test("Army–Navy counts toward overall records but not AAC standings", () => {
   assert.equal(g.conf, false);
   assert.equal(g.champ, false);
 });
+
+test("strength of record: bubble-team expectation follows schedule difficulty", () => {
+  const {season} = validateSeason({teams: [{id: "a", name: "A", conf: "X"}, {id: "b", name: "B", conf: "X"}, {id: "c", name: "C", conf: "Y"}],
+    games: [{id: "1", week: 1, home: "a", away: "b", neutral: true}, {id: "2", week: 2, home: "c", away: null, awayName: "FCS"}],
+    ratings: {sp: {a: 20, b: -10, c: 0}}});
+  const st = defaultState(); st.cfp.field = 2;
+  const P = prepare(season, st);
+  assert.equal(P.params.bench, 0);
+  // A's schedule is weak B (a bubble team usually wins it); B's is strong A.
+  assert.ok(P.expW[0] > 0.7 && P.expW[1] < 0.1);
+  assert.ok(P.expW[2] > 0.9, "bench team nearly always beats an FCS opponent");
+});
