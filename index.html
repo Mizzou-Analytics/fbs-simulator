@@ -30,17 +30,17 @@ main.wrap{padding-bottom:80px}
 header{padding:34px 0 14px}
 header .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:14px}
 h1{font-weight:400;font-size:34px;margin:0;letter-spacing:-.01em;line-height:1.1}
-#dataInfo{font-style:italic;color:var(--muted);font-size:14px;margin-top:6px}
+#dataInfo{color:var(--muted);font-size:14px;margin-top:6px}
 
 nav.bar{position:sticky;top:0;z-index:20;background:var(--bg);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
 nav.bar .wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding-top:7px;padding-bottom:7px}
 nav.bar a{color:var(--text);text-decoration:none;font-size:14px;font-variant:small-caps;letter-spacing:.06em;text-transform:lowercase}
 nav.bar a:hover{color:var(--accent)}
 nav.bar .sp{flex:1}
-nav.bar label{margin:0;font-style:italic;font-size:14px;color:var(--muted)}
+nav.bar label{margin:0;font-size:14px;color:var(--muted)}
 
-h2{font-weight:400;font-style:italic;font-size:24px;margin:0;line-height:1.2}
-h3{font-weight:400;font-style:italic;font-size:18px;margin:26px 0 4px}
+h2{font-weight:600;font-size:24px;margin:0;line-height:1.2}
+h3{font-weight:600;font-size:18px;margin:26px 0 4px}
 section{margin-top:44px}
 .sec-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 16px;margin-bottom:10px}
 .note,.muted{color:var(--muted);font-size:14px}
@@ -59,13 +59,13 @@ button.primary{border-color:var(--text);font-weight:600}
 button.on{background:var(--text);color:var(--bg);border-color:var(--text)}
 button.link{height:auto;padding:0;border:0;background:none;color:var(--accent);text-decoration:underline;font:inherit}
 .row{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:end}
-label{font-size:13px;color:var(--muted);display:block;margin-bottom:3px;font-style:italic}
+label{font-size:13px;color:var(--muted);display:block;margin-bottom:3px}
 .fld input{width:88px}
 .fld select{min-width:120px}
 
 /* Tables: three rules, no grid */
 table{width:100%;border-collapse:collapse;font-size:14px}
-thead th{font-weight:400;font-style:italic;color:var(--muted);font-size:13px;padding:6px 6px 5px;border-bottom:1px solid var(--text);text-align:left;vertical-align:bottom}
+thead th{font-weight:400;color:var(--muted);font-size:13px;padding:6px 6px 5px;border-bottom:1px solid var(--text);text-align:left;vertical-align:bottom}
 table{border-top:1px solid var(--text);border-bottom:1px solid var(--text)}
 td{padding:4px 6px;text-align:left}
 tbody tr:hover td{background:var(--soft)}
@@ -102,7 +102,7 @@ td.pb{background:linear-gradient(color-mix(in srgb,var(--ink) 55%,transparent),c
 .pod{border-top:1px solid var(--text);padding-top:6px}
 .pod .lbl{font-variant:small-caps;letter-spacing:.06em;text-transform:lowercase;color:var(--muted);font-size:14px;margin-bottom:2px}
 .pod .sep{border-top:1px dotted var(--rule);margin:5px 0}
-.pod .vs{font-size:12px;font-style:italic;color:var(--muted);padding-left:28px;line-height:1.1}
+.pod .vs{font-size:12px;color:var(--muted);padding-left:28px;line-height:1.1}
 .tm{display:flex;gap:8px;align-items:baseline;padding:1px 0}
 .tm .sd{width:20px;flex:none;text-align:right;color:var(--muted);font-size:14px}
 .tm .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -195,7 +195,7 @@ try { const t = localStorage.getItem("fbsSim.theme"); if (t === "light" || t ===
     <p class="note">The projected field: the teams most likely to make the playoff, seeded by average finish (missing the field counts as one spot below the last seed). Each line gives the projected record and the chance of a bye, of hosting a first-round game, or of making the field; hover for the chance of that exact seed. Teams from the selected conference are in red.</p>
     <div class="pods" id="bracket"></div>
     <h3>Playoff odds</h3>
-    <p class="note">Every team with at least a 0.5% chance, most likely first. <i>SOR</i> is strength of record: projected wins above what a bubble team would win against the same schedule. The seed columns shade from blank to solid ink as a seed becomes more likely (a dot is under 0.5%); the round columns give the chance of reaching each round.</p>
+    <p class="note">Every team with at least a 0.5% chance, most likely first. SOR is strength of record: projected wins above what a bubble team would win against the same schedule. The seed columns shade from blank to solid ink as a seed becomes more likely (a dot is under 0.5%); the round columns give the chance of reaching each round.</p>
     <div class="scroll" id="natTable"></div>
   </section>
 
