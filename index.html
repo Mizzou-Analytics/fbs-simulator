@@ -138,6 +138,19 @@ td.pb{background:linear-gradient(color-mix(in srgb,var(--ink) 55%,transparent),c
 .gm .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .forced{color:var(--accent)}
 
+
+/* Team links, game rows, odds chart */
+a.tl{color:inherit;text-decoration:none;border-bottom:1px dotted var(--rule)}
+a.tl:hover{border-bottom-color:var(--text)}
+.hl a.tl,.tm.hl a.tl{color:var(--accent)}
+tr.gtop td{border-top:1px solid var(--rule)}
+tbody tr.gtop:first-child td{border-top:0}
+svg.chart text{font-size:12px;fill:var(--muted)}
+svg.chart text.lbl1{fill:var(--text)}
+svg.chart .axis{stroke:var(--rule)}
+svg.chart .l1{fill:none;stroke:var(--text);stroke-width:1.5}
+svg.chart .l2{fill:none;stroke:var(--muted);stroke-width:1;stroke-dasharray:3 2}
+
 @media (max-width:560px){
   h1{font-size:28px}
   .grid2{grid-template-columns:1fr}
@@ -175,7 +188,8 @@ try { const t = localStorage.getItem("fbsSim.theme"); if (t === "light" || t ===
     <a href="#playoff">Playoff</a>
     <a href="#conference">Conference</a>
     <a href="#whatif">What-if</a>
-    <a href="#teamsSec">Teams</a>
+    <a href="#teamSec">Team</a>
+    <a href="#teamsSec">Ratings</a>
     <a href="#settings">Settings</a>
     <span class="sp"></span>
     <label for="confSel">Conference</label>
@@ -227,12 +241,21 @@ try { const t = localStorage.getItem("fbsSim.theme"); if (t === "light" || t ===
         <span class="muted" id="fc"></span><button id="clearBtn">Clear what-ifs</button>
       </div>
     </div>
+    <h3 style="margin-top:6px">Games that matter</h3>
+    <p class="note">This week's games that move playoff and conference-title odds the most for the two teams playing: each team's chance of winning, and its odds in simulated seasons where it wins versus loses.</p>
+    <div class="scroll" id="bigGames"></div>
+    <h3>Force a result</h3>
     <p class="note">Force a winner for any remaining game. Percentages are the home team's pregame win probability ("vs" = neutral site). What-ifs in other weeks and conferences stay in effect.</p>
     <div class="games" id="games"></div>
   </section>
 
+  <section id="teamSec">
+    <div class="sec-head"><h2>Team</h2><div><label for="teamSel" style="display:inline;margin-right:6px">Team</label><select id="teamSel"></select></div></div>
+    <div id="teamView"><p class="note">Run the simulation to see a team's outlook. Team names anywhere on the page open their page here.</p></div>
+  </section>
+
   <section id="teamsSec">
-    <div class="sec-head"><h2>Teams</h2><span class="muted" id="teamsNote"></span></div>
+    <div class="sec-head"><h2>Ratings</h2><span class="muted" id="teamsNote"></span></div>
     <p class="note">Records come from final scores. Once the rating source has two or more weeks of history, a sparkline traces it week by week, ending at the red dot. Δ wk is the change since last week. Type an override to replace a team's rating; clear it to go back to the source.</p>
     <div class="scroll tall"><table id="teams"></table></div>
   </section>

@@ -96,8 +96,8 @@ async function main() {
     return t;
   };
   const cands = [];
-  for (const sorW of [3, 6, 9, 12]) for (const indSD of [1.5, 3, 5]) for (const champBonus of [0, 3, 6])
-    for (const h2hWin of [0, 3, 6]) for (const titleLossW of [0, 0.5, 1]) {
+  for (const sorW of [6, 9, 12]) for (const indSD of [1, 1.5, 2.5]) for (const champBonus of [3, 6, 9, 12])
+    for (const h2hWin of [3, 6, 9]) for (const titleLossW of [0, 0.25, 0.5]) {
       const cfp = {...DEF_CFP, model: "sor", sorW, indSD, champBonus, h2hWin, titleLossW};
       cands.push({cfp, loss: committeeLoss(cfp)});
     }

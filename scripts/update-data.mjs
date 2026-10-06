@@ -14,10 +14,12 @@ import {fileURLToPath} from "node:url";
 import path from "node:path";
 import {validateSeason} from "../js/model.js";
 import {fetchRetry, cfbdClient} from "./net.mjs";
+import {oddsSnapshot, addSnapshot, serializeHistory} from "./odds.mjs";
 import {normTeams, normGames, eloByWeek, normRatings, parseSheet, sheetCsvUrl, buildSeason, seasonYear, serialize, sameData} from "./sources.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(root, "data", "season.json");
+const HISTORY = path.join(root, "data", "odds-history.json");
 const args = process.argv.slice(2);
 const scoresOnly = args.includes("--scores-only");
 const yi = args.indexOf("--year");
@@ -65,12 +67,25 @@ async function main() {
   }
 
   const season = buildSeason({year, teams, games, ratings, eloWeeks, sheetWeeks, sheetLabel: cfg.sheet && cfg.sheet.label, prev, now});
-  const {warnings} = validateSeason(season);
+  const {season: valid, warnings} = validateSeason(season);
   const prefix = process.env.GITHUB_ACTIONS ? "::warning::" : "warning: ";
   for (const w of [...problems, ...warnings]) console.warn(prefix + w);
-  if (sameData(season, prev)) { console.log("No changes."); return; }
-  await writeFile(OUT, serialize(season));
-  console.log(`Wrote ${path.relative(root, OUT)} (week ${season.currentWeek}).`);
+  const changed = !sameData(season, prev);
+  if (changed) {
+    await writeFile(OUT, serialize(season));
+    console.log(`Wrote ${path.relative(root, OUT)} (week ${season.currentWeek}).`);
+  } else console.log("No data changes.");
+
+  // Odds snapshot (default settings) whenever the data changed, and at
+  // least once a day. Dates are US Eastern, the sport's clock.
+  const today = new Date().toLocaleDateString("en-CA", {timeZone: "America/New_York"});
+  const hist = await readJson(HISTORY);
+  const have = hist && hist.season === year && Array.isArray(hist.snapshots) && hist.snapshots.some(x => x.date === today);
+  if (changed || !have) {
+    const snap = oddsSnapshot(valid, today);
+    await writeFile(HISTORY, serializeHistory(addSnapshot(hist, snap, year)));
+    console.log(`Saved odds snapshot for ${today}.`);
+  }
 }
 
 main().catch(e => { console.error("error:", e.message); process.exit(1); });
