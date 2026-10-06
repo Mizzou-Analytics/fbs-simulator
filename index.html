@@ -58,6 +58,21 @@ td input{width:70px;height:30px}
 .bids{display:flex;align-items:flex-end;gap:8px;height:140px;margin-top:8px}
 .bids div.c{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;font-size:12px}
 .bids div.b{width:100%;max-width:48px;background:var(--accent);border-radius:4px 4px 0 0}
+.pods{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.pod{border:1px solid var(--border);border-radius:10px;padding:8px 10px}
+.pod .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.pod .sep{border-top:1px dashed var(--border);margin:6px 0}
+.pod .vs{font-size:11px;color:var(--muted);padding-left:26px;line-height:1.2}
+.tm{display:flex;gap:8px;align-items:baseline;padding:2px 4px;border-radius:6px}
+.tm .sd{width:18px;flex:none;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px}
+.tm .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;font-size:13px}
+.tm .pr{flex:none;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.hl{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+h3{font-size:14px;font-weight:600;margin:16px 0 4px}
+.nat{min-width:980px}
+.nat th.hc{text-align:center;font-size:11px;padding:4px 0;width:30px}
+.nat td.hc{padding:0;height:26px;text-align:center;font-size:11px;border:1px solid var(--card);font-variant-numeric:tabular-nums}
+.nat td:first-child{white-space:nowrap}
 .fld input{width:96px}
 .fld select{min-width:120px}
 .up{color:var(--good)}.dn{color:var(--bad)}
@@ -145,6 +160,15 @@ td input{width:70px;height:30px}
     <div class="head"><h2 style="margin:0">Results</h2><span class="muted" id="status"></span></div>
     <div class="prog" id="prog"><div id="progBar"></div></div>
     <div class="scroll" id="out" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <div class="head"><h2 style="margin:0">National playoff picture</h2><span class="muted" id="natNote"></span></div>
+    <div class="muted" style="margin:6px 0 10px">The projected field is the teams most likely to make the playoff, seeded by average finish (missing the field counts as one spot below the last seed). Each line shows the team's projected record and its chance of a bye, of hosting a first-round game, or of making the field. Hover a team for its chance of that exact seed. This covers all of FBS; teams from the selected conference are highlighted.</div>
+    <div class="pods" id="bracket"></div>
+    <h3>Playoff odds</h3>
+    <div class="muted" style="margin-bottom:6px">Every team with at least a 0.5% chance, most likely first. Seed columns show the chance of each seed (darker = more likely, a dot = under 0.5%). The round columns are the chance of reaching that round; Title is winning it all.</div>
+    <div class="scroll" id="natTable"></div>
   </div>
 
   <div class="card">

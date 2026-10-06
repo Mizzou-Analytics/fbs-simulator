@@ -138,7 +138,12 @@ export function simulate(P, useForce, onProgress) {
   const {n, confs, confOf, R, rem, forced, sos, maxConfSize, maxConfG} = P;
   const {N, seed, hfa, gsd, rsd, fcs, lossPen, champBonus, sosW, indSD, forgive, field: F, byes: B, autoBids} = P.params;
   const nc = confs.length, cw1 = maxConfG + 1;
-  const out = {N, n, F, maxConfSize, maxConfG,
+  // Bracket: M slots after the first round (byes plus first-round winners),
+  // then log2(M) more rounds. Stage k of `reach` is the round with M / 2^k
+  // teams left, so the last stage is the champion.
+  const M = B + (F - B) / 2, stages = Math.round(Math.log2(M)) + 1, hosts = (F - B) / 2;
+  const out = {N, n, F, B, M, stages, maxConfSize, maxConfG,
+    seed: new Float64Array(n * F), host: new Float64Array(n), auto: new Float64Array(n), reach: new Float64Array(n * stages),
     sw: new Float64Array(n), sl: new Float64Array(n), scw: new Float64Array(n), scl: new Float64Array(n),
     top2: new Float64Array(n), ch: new Float64Array(n), cfp: new Float64Array(n), bye: new Float64Array(n), natl: new Float64Array(n),
     place: new Float64Array(n * maxConfSize), cwins: new Float64Array(n * cw1), bids: new Float64Array(nc * (F + 1))};
@@ -149,7 +154,7 @@ export function simulate(P, useForce, onProgress) {
   const bidCount = new Int16Array(nc), seeds = new Int16Array(F), slot = new Int16Array(F);
   const order = Array.from({length: n}, (_, i) => i), byScore = (a, b) => sc[b] - sc[a];
   const rank = makeRanker({n, G2: P.G2, wins, CW, CL, confOpps: P.confOpps, r});
-  const M = B + (F - B) / 2, slots = bracketSlots(M), every = Math.max(1, Math.floor(N / 50));
+  const slots = bracketSlots(M), every = Math.max(1, Math.floor(N / 50));
   const play = (x, y, adv, z) => r[x] - r[y] + adv + gsd * z > 0 ? x : y;
 
   for (let s = 0; s < N; s++) {
@@ -209,14 +214,16 @@ export function simulate(P, useForce, onProgress) {
     order.sort(byScore);
     inField.fill(0);
     let cnt = 0;
-    for (let k = 0; k < n && cnt < autoBids; k++) if (isChamp[order[k]]) { inField[order[k]] = 1; cnt++; }
+    for (let k = 0; k < n && cnt < autoBids; k++) if (isChamp[order[k]]) { inField[order[k]] = 1; out.auto[order[k]]++; cnt++; }
     for (let k = 0; k < n && cnt < F; k++) if (!inField[order[k]]) { inField[order[k]] = 1; cnt++; }
     for (let k = 0, q = 0; k < n && q < cnt; k++) if (inField[order[k]]) seeds[q++] = order[k];
     bidCount.fill(0);
     for (let q = 0; q < cnt; q++) {
       const i = seeds[q];
       out.cfp[i]++;
+      out.seed[i * F + q]++;
       if (q < B) out.bye[i]++;
+      else if (q < B + hosts) out.host[i]++;
       bidCount[confOf[i]]++;
     }
     for (let c = 0; c < nc; c++) out.bids[c * (F + 1) + bidCount[c]]++;
@@ -226,7 +233,9 @@ export function simulate(P, useForce, onProgress) {
       for (let q = 0; q < B; q++) slot[q] = seeds[q];
       for (let q = 0; q < (F - B) / 2; q++) slot[B + q] = play(seeds[B + q], seeds[F - 1 - q], hfa, gauss(rng));
       let round = slots.map(k => slot[k - 1]);
-      while (round.length > 1) {
+      for (let st = 0; ; st++) {
+        for (const i of round) out.reach[i * stages + st]++;
+        if (round.length === 1) break;
         const next = [];
         for (let q = 0; q < round.length; q += 2) next.push(play(round[q], round[q + 1], 0, gauss(rng)));
         round = next;

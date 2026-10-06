@@ -106,3 +106,20 @@ test("a scheduled title game decides the champion", () => {
   const away = raw.teams.findIndex(t => t.id === sec[15].id);
   assert.equal(A.ch[away], A.N);
 });
+
+test("seed, host, auto-bid and round counts add up every season", () => {
+  for (const [field, byes] of [[12, 4], [16, 0]]) {
+    const st = defaultState();
+    st.cfp.field = field; st.cfp.byes = byes;
+    const P = small(st), A = simulate(P, true), N = A.N;
+    const sum = (arr, from = 0, stride = 1, count = arr.length) => { let t = 0; for (let k = 0; k < count; k++) t += arr[from + k * stride]; return t; };
+    for (let q = 0; q < field; q++) assert.equal(sum(A.seed, q, field, P.n), N, `seed ${q + 1} filled once per season`);
+    assert.equal(sum(A.host) / N, (field - byes) / 2);
+    assert.equal(sum(A.auto) / N, 5);
+    for (let k = 0; k < A.stages; k++) assert.equal(sum(A.reach, k, A.stages, P.n) / N, A.M >> k);
+    for (let i = 0; i < P.n; i++) {
+      assert.equal(A.reach[i * A.stages + A.stages - 1], A.natl[i]);
+      assert.ok(A.bye[i] + A.host[i] <= A.cfp[i]);
+    }
+  }
+});
