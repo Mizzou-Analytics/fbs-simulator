@@ -1,0 +1,12 @@
+{
+  "name": "fbs-season-simulator",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "update": "node scripts/update-data.mjs",
+    "update:scores": "node scripts/update-data.mjs --scores-only",
+    "demo": "node scripts/make-demo-data.mjs",
+    "serve": "python3 -m http.server 8000"
+  }
+}

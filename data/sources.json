@@ -1,0 +1,12 @@
+{
+  "cfbdRatings": ["sp", "fpi", "elo", "srs"],
+  "sheet": {
+    "url": null,
+    "label": "Ratings sheet",
+    "teamColumn": null,
+    "ratingColumn": null,
+    "weekColumn": null,
+    "scale": null,
+    "aliases": {}
+  }
+}

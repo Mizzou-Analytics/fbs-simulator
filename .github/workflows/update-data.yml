@@ -1,0 +1,53 @@
+name: Update season data
+
+# Scores refresh hourly while games are on; ratings refresh once a day.
+# Times are UTC. Scheduled runs only fire on the default branch.
+on:
+  schedule:
+    - cron: "7 11 * * *"        # daily full refresh (ratings + scores), ~7am ET
+    - cron: "37 16-23 * * 6"    # Saturday afternoon and evening ET
+    - cron: "37 0-6 * * 0"      # Saturday night ET
+    - cron: "37 0-5 * * 4,5,6"  # Wednesday–Friday night games ET
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full = ratings + scores; scores = scores only"
+        type: choice
+        options: [full, scores]
+        default: full
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pull data
+        env:
+          CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
+          RATINGS_SHEET_URL: ${{ vars.RATINGS_SHEET_URL }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.mode }}" = "full" ]; then FLAG="";
+          elif [ "${{ github.event.schedule }}" = "7 11 * * *" ]; then FLAG="";
+          else FLAG="--scores-only"; fi
+          node scripts/update-data.mjs $FLAG
+      - name: Commit changes
+        run: |
+          if git diff --quiet -- data/season.json && ! git ls-files --others --exclude-standard data | grep -q .; then
+            echo "No data changes."; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/season.json
+          git commit -m "Update season data"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push
