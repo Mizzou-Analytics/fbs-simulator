@@ -91,6 +91,8 @@ Multi-team ties start over at step 1 whenever a team is separated. Each conferen
 
 The top *auto bids* conference champions by score get in. The highest remaining scores fill the rest of the field, and seeding follows score order. The top *byes* seeds skip the first round, which is played at the higher seed; later rounds are neutral. The field size, byes and auto bids can be changed (for example to 16 teams with no byes). The default is the 12-team, 5 + 7 format.
 
+**National view.** The page projects the full playoff field: the teams most likely to make it, seeded by average finish and laid out as a bracket with byes and first-round hosts. Below it, every contender's odds of making the field, getting an auto bid, a bye or a home first-round game, each seed, and reaching each round.
+
 **What-ifs.** Each simulated season draws its random numbers from its own seeded generator, in a fixed order whether or not a game is forced. So the run with your what-ifs and the baseline run without them see identical luck everywhere else. The colored +/− numbers show only what your what-ifs changed. Games are keyed by their schedule id, so rematches are separate what-ifs.
 
 ## Files
