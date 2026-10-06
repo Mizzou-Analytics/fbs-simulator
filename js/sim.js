@@ -1,3 +1,5 @@
+import {benchWinProb} from "./model.js";
+
 // Monte Carlo season simulator. Pure functions with no DOM access, so it runs
 // in a Web Worker, on the main thread, or under Node for tests.
 
@@ -136,14 +138,15 @@ export function makeRanker(ctx) {
 // outcome of those games. Returns per-team counts over all seasons.
 export function simulate(P, useForce, onProgress) {
   const {n, confs, confOf, R, rem, forced, sos, maxConfSize, maxConfG} = P;
-  const {N, seed, hfa, gsd, rsd, fcs, lossPen, champBonus, sosW, indSD, forgive, field: F, byes: B, autoBids} = P.params;
+  const {N, seed, hfa, gsd, rsd, fcs, lossPen, champBonus, sosW, indSD, forgive, field: F, byes: B, autoBids, model, sorW, bench} = P.params;
+  const expW = P.expW;
   const nc = confs.length, cw1 = maxConfG + 1;
   // Bracket: M slots after the first round (byes plus first-round winners),
   // then log2(M) more rounds. Stage k of `reach` is the round with M / 2^k
   // teams left, so the last stage is the champion.
   const M = B + (F - B) / 2, stages = Math.round(Math.log2(M)) + 1, hosts = (F - B) / 2;
   const out = {N, n, F, B, M, stages, maxConfSize, maxConfG,
-    seed: new Float64Array(n * F), host: new Float64Array(n), auto: new Float64Array(n), reach: new Float64Array(n * stages),
+    seed: new Float64Array(n * F), host: new Float64Array(n), auto: new Float64Array(n), reach: new Float64Array(n * stages), sor: new Float64Array(n),
     sw: new Float64Array(n), sl: new Float64Array(n), scw: new Float64Array(n), scl: new Float64Array(n),
     top2: new Float64Array(n), ch: new Float64Array(n), cfp: new Float64Array(n), bye: new Float64Array(n), natl: new Float64Array(n),
     place: new Float64Array(n * maxConfSize), cwins: new Float64Array(n * cw1), bids: new Float64Array(nc * (F + 1))};
@@ -151,6 +154,7 @@ export function simulate(P, useForce, onProgress) {
   const r = new Float64Array(n), W = new Int16Array(n), L = new Int16Array(n), CW = new Int16Array(n), CL = new Int16Array(n);
   const wins = new Int16Array(n * n), champW = new Int16Array(nc), champL = new Int16Array(nc);
   const isChamp = new Uint8Array(n), lostTitle = new Uint8Array(n), inField = new Uint8Array(n), sc = new Float64Array(n);
+  const titleOpp = new Int16Array(n), titleHome = new Int16Array(n);
   const bidCount = new Int16Array(nc), seeds = new Int16Array(F), slot = new Int16Array(F);
   const order = Array.from({length: n}, (_, i) => i), byScore = (a, b) => sc[b] - sc[a];
   const rank = makeRanker({n, G2: P.G2, wins, CW, CL, confOpps: P.confOpps, r});
@@ -161,7 +165,7 @@ export function simulate(P, useForce, onProgress) {
     const rng = makeRng(seed, s);
     for (let i = 0; i < n; i++) r[i] = R[i] + rsd * gauss(rng);
     W.set(P.W0); L.set(P.L0); CW.set(P.CW0); CL.set(P.CL0); wins.set(P.wins0);
-    champW.fill(-1); champL.fill(-1); isChamp.fill(0); lostTitle.fill(0);
+    champW.fill(-1); champL.fill(-1); isChamp.fill(0); lostTitle.fill(0); titleOpp.fill(-1);
 
     for (let j = 0; j < rem.length; j++) {
       const g = rem[j], z = gauss(rng), f = useForce ? forced[j] : 0;
@@ -178,9 +182,9 @@ export function simulate(P, useForce, onProgress) {
       if (C.format === "none" || !C.members.length) continue;
       const ord = rank(C.members);
       for (let p = 0; p < ord.length; p++) out.place[ord[p] * maxConfSize + p]++;
-      let champ = -1, lo = -1;
-      if (C.champDone) { champ = C.champDone.w; lo = C.champDone.l; }
-      else if (C.champGame >= 0) { champ = champW[c]; lo = champL[c]; }
+      let champ = -1, lo = -1, home = -1;
+      if (C.champDone) { champ = C.champDone.w; lo = C.champDone.l; home = C.champDone.home; }
+      else if (C.champGame >= 0) { champ = champW[c]; lo = champL[c]; const g = rem[C.champGame]; home = g.neu ? -1 : g.h; }
       else if (C.format === "first" || ord.length < 2) champ = ord[0];
       else {
         let x = ord[0], y = ord[1];
@@ -190,13 +194,17 @@ export function simulate(P, useForce, onProgress) {
         }
         if (y === undefined) champ = x;
         else {
+          if (C.hosted) home = x;
           champ = play(x, y, C.hosted ? hfa : 0, z);
           lo = champ === x ? y : x;
           W[champ]++; L[lo]++;
         }
       }
       if (champ >= 0) { isChamp[champ] = 1; out.ch[champ]++; }
-      if (champ >= 0 && lo >= 0) { out.top2[champ]++; out.top2[lo]++; lostTitle[lo] = 1; }
+      if (champ >= 0 && lo >= 0) {
+        out.top2[champ]++; out.top2[lo]++; lostTitle[lo] = 1;
+        titleOpp[champ] = lo; titleOpp[lo] = champ; titleHome[champ] = titleHome[lo] = home;
+      }
     }
 
     for (let i = 0; i < n; i++) {
@@ -206,10 +214,18 @@ export function simulate(P, useForce, onProgress) {
 
     // Committee: score every team, give the auto bids to the top-scoring
     // conference champions, fill the rest of the field by score, and seed
-    // the field in score order.
+    // the field in score order. Strength of record is wins minus a bubble
+    // team's expected wins against the same schedule, title game included
+    // (a forgiven title-game loss drops out entirely).
     for (let i = 0; i < n; i++) {
-      const losses = L[i] - (forgive && lostTitle[i] ? 1 : 0);
-      sc[i] = r[i] - lossPen * losses + (isChamp[i] ? champBonus : 0) + sosW * sos[i] + indSD * gauss(rng);
+      let sor = W[i] - expW[i];
+      const o = titleOpp[i];
+      if (o >= 0 && !(forgive && lostTitle[i])) sor -= benchWinProb(bench, R[o], titleHome[i] < 0 ? 0 : titleHome[i] === i ? hfa : -hfa, gsd);
+      out.sor[i] += sor;
+      const base = model === "losses"
+        ? r[i] - lossPen * (L[i] - (forgive && lostTitle[i] ? 1 : 0)) + sosW * sos[i]
+        : r[i] + sorW * sor;
+      sc[i] = base + (isChamp[i] ? champBonus : 0) + indSD * gauss(rng);
     }
     order.sort(byScore);
     inField.fill(0);

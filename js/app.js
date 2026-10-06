@@ -1,6 +1,6 @@
 import {bracketSlots} from "./sim.js";
 import {validateSeason, validateState, defaultState, migrateV1, cleanSetting, clampRating, prepare, baseRatings, previousRatings,
-  teamRecords, bracketError, phi, SOURCE_LABELS, STATE_FORMAT, SEASON_FORMAT} from "./model.js";
+  teamRecords, bracketError, phi, resultsRatings, priorRatings, SOURCE_LABELS, STATE_FORMAT, SEASON_FORMAT} from "./model.js";
 
 const KEY = "fbsSim.v2", CUSTOM_KEY = "fbsSim.season", POLL_MS = 10 * 60 * 1000;
 const SHORT = {"Mississippi State": "Miss. State", "South Carolina": "S. Carolina", "Appalachian State": "App State",
@@ -19,6 +19,25 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } },
   del(k) { try { localStorage.removeItem(k); } catch { /* storage unavailable */ } }
 };
+
+// Heatmap cell shaded in ink: blank at 0%, solid at about 60% and up.
+function heatCell(p, title, cls = "") {
+  const shade = Math.min(100, p * 1.6), txt = p >= 0.5 ? Math.round(p) : p > 0 ? "·" : "";
+  return `<td${cls ? ` class="${cls}"` : ""} title="${esc(title)}" style="background:color-mix(in srgb, var(--ink) ${shade.toFixed(0)}%, transparent);${shade > 55 ? "color:var(--bg);" : ""}">${txt}</td>`;
+}
+
+// Word-sized line chart of one team's rating by week, ending in a dot.
+// Each line gets its own vertical scale, but never less than 4 points tall,
+// so small wobbles stay small.
+function sparkline(vals, w = 64, h = 16) {
+  const v = vals.filter(Number.isFinite);
+  if (v.length < 2) return "";
+  let lo = Math.min(...v), hi = Math.max(...v);
+  if (hi - lo < 4) { const m = (hi + lo) / 2; lo = m - 2; hi = m + 2; }
+  const x = k => 1 + k * (w - 2) / (v.length - 1), y = val => h - 1 - (val - lo) / (hi - lo) * (h - 2);
+  const d = v.map((val, k) => `${k ? "L" : "M"}${x(k).toFixed(1)},${y(val).toFixed(1)}`).join("");
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="${d}"/><circle cx="${x(v.length - 1).toFixed(1)}" cy="${y(v[v.length - 1]).toFixed(1)}" r="1.8"/></svg>`;
+}
 
 let S = loadState();
 let D = null, origin = "", warnings = [], customMem = null;
@@ -123,7 +142,24 @@ async function refresh() {
 function computeRatings() {
   const {src, values} = baseRatings(D, S.settings), prev = previousRatings(D, S.settings), eff = {};
   for (const t of D.teams) eff[t.id] = Number.isFinite(S.overrides[t.id]) ? S.overrides[t.id] : values[t.id];
-  RT = {src, base: values, prev, eff};
+  RT = {src, base: values, prev, eff, series: ratingSeries(src, values)};
+}
+
+// Each team's rating by week for the sparklines: saved snapshots of the
+// source (or the results model recomputed through each week), ending with
+// the current value.
+function ratingSeries(src, now) {
+  const weeks = [];
+  if (src === "score") {
+    const prior = priorRatings(D);
+    for (let w = 2; w < D.currentWeek; w++) weeks.push(resultsRatings(D, S.settings, prior, w));
+  } else {
+    for (const h of D.history) if (h.week < D.currentWeek && h.ratings[src]) weeks.push(h.ratings[src]);
+  }
+  weeks.push(now);
+  const out = {};
+  for (const t of D.teams) out[t.id] = weeks.map(r => r[t.id]);
+  return out;
 }
 
 function srcLabel(k) { return (D && D.ratingNames[k]) || SOURCE_LABELS[k] || k; }
@@ -145,8 +181,9 @@ function bindSettings() {
       el.value = S[g][k];
     }
     const apply = () => {
-      S[g][k] = el.tagName === "SELECT" && k === "source" ? el.value : cleanSetting(g, k, el.value);
+      S[g][k] = el.tagName === "SELECT" && (k === "source" || k === "model") ? el.value : cleanSetting(g, k, el.value);
       save();
+      if (k === "model") showModel();
       if (g === "cfp") $("cfpErr").textContent = bracketError(S.cfp) || "";
       if (["source", "hfa", "fcs", "priorW", "cap", "gsd", "rsd"].includes(k)) { computeRatings(); renderTeams(); renderGames(); }
     };
@@ -154,6 +191,17 @@ function bindSettings() {
     el.onchange = () => { apply(); if (el.tagName !== "SELECT") el.value = S[g][k]; };
   });
   $("cfpErr").textContent = bracketError(S.cfp) || "";
+  showModel();
+}
+
+// Show only the inputs the chosen committee model uses, and explain it.
+function showModel() {
+  const m = S.cfp.model;
+  document.querySelectorAll("[data-model]").forEach(el => { el.hidden = el.dataset.model !== m; });
+  const tail = " The highest-scoring conference champions get the automatic bids, and the rest of the field goes to the highest remaining scores. Seeding follows the score order, and the top seeds get byes. The bracket is then played out, with first-round games at the higher seed and later rounds at neutral sites.";
+  $("cfpExplain").textContent = (m === "sor"
+    ? "In every simulated season, each FBS team gets a committee score: rating + SOR weight × strength of record + champion bonus (conference champions) + noise. Strength of record is wins minus the wins a bubble team (the field-size-th best rating) would expect against the same schedule at the same sites, so a loss to a top team costs much less than a loss to a weak one."
+    : "In every simulated season, each FBS team gets a committee score: rating − loss penalty × losses + SoS weight × average opponent rating + champion bonus (conference champions) + noise. Every loss costs the same, whoever it's against.") + tail;
 }
 
 function renderConfPicker() {
@@ -166,17 +214,19 @@ const inView = t => !S.view.conf || t.conf === S.view.conf;
 
 function renderTeams() {
   const all = !S.view.conf, idx = D.teams.map((_, i) => i).filter(i => inView(D.teams[i]));
+  // Sparklines only once the source has at least two weeks to draw.
+  const spark = Object.values(RT.series).some(v => v.filter(Number.isFinite).length > 1);
   idx.sort((a, b) => RT.base[D.teams[b].id] - RT.base[D.teams[a].id]);
   $("teamsNote").textContent = `${srcLabel(RT.src)} ratings`;
   const head = `<thead><tr><th>Team</th>${all ? "<th>Conf</th>" : ""}<th class="num">W–L</th><th class="num">Conf</th>
-    <th class="num">${esc(srcLabel(RT.src))}</th><th class="num">Δ wk</th><th>Override</th></tr></thead>`;
+    <th class="num">${esc(srcLabel(RT.src))}</th>${spark ? "<th>By week</th>" : ""}<th class="num">Δ wk</th><th>Override</th></tr></thead>`;
   const body = idx.map(i => {
     const t = D.teams[i], r = REC[i], base = RT.base[t.id], prev = RT.prev && RT.prev[t.id];
     const dv = Number.isFinite(prev) ? base - prev : null;
     const dtxt = dv === null ? "" : Math.abs(dv) < 0.05 ? "0.0" : `<span class="${dv > 0 ? "up" : "dn"}">${dv > 0 ? "+" : ""}${dv.toFixed(1)}</span>`;
     const ov = S.overrides[t.id];
     return `<tr><td>${esc(t.name)}</td>${all ? `<td class="muted">${esc(t.conf)}</td>` : ""}
-      <td class="num">${r.w}–${r.l}</td><td class="num">${r.cw}–${r.cl}</td><td class="num">${base.toFixed(1)}</td><td class="num">${dtxt}</td>
+      <td class="num">${r.w}–${r.l}</td><td class="num">${r.cw}–${r.cl}</td><td class="num">${base.toFixed(1)}</td>${spark ? `<td>${sparkline(RT.series[t.id])}</td>` : ""}<td class="num">${dtxt}</td>
       <td><input type="number" step="0.5" data-id="${esc(t.id)}" value="${Number.isFinite(ov) ? ov : ""}" placeholder="${base.toFixed(1)}" aria-label="Rating override for ${esc(t.name)}"></td></tr>`;
   }).join("");
   $("teams").innerHTML = head + `<tbody>${body}</tbody>`;
@@ -247,7 +297,7 @@ function run() {
     setProgress(null);
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
     $("status").textContent = `${A.N.toLocaleString()} seasons in ${secs}s` + (any ? " · colored numbers = change vs. no what-ifs (same random draws), in points" : "");
-    renderResults(); renderNational(); renderHeat(); renderBids();
+    renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids();
   };
   const fail = msg => { if (id === runId) { setProgress(null); $("status").textContent = `Simulation failed: ${msg}`; } };
 
@@ -316,7 +366,8 @@ function renderResults() {
         <td class="num">${r.w}–${r.l}</td>
         <td class="num">${z.proj.toFixed(1)}–${(A.sl[z.i] / N).toFixed(1)}</td>
         <td class="num">${z.none ? "—" : `${z.projc.toFixed(1)}–${(A.scl[z.i] / N).toFixed(1)}`}</td>
-        ${["t2", "ch", "cfp", "bye", "natl"].map(k => `<td class="num">${z.none && (k === "t2" || k === "ch") ? "—" : pc(z[k]) + (B ? dl(z["d" + k]) : "")}</td>`).join("")}</tr>`;
+        ${["t2", "ch", "cfp", "bye", "natl"].map(k => z.none && (k === "t2" || k === "ch") ? `<td class="num muted">—</td>`
+          : `<td class="num pb" style="--p:${(z[k] * 100).toFixed(1)}%">${pc(z[k])}${B ? dl(z["d" + k]) : ""}</td>`).join("")}</tr>`;
     }).join("")}
     </tbody></table>`;
   $("out").querySelectorAll("th.sort").forEach(th => {
@@ -337,24 +388,31 @@ const ROUND = {2: "Semifinal", 4: "Quarterfinal", 8: "Quarterfinal", 16: "Round 
 
 // National view: the projected field and bracket, then every contender's
 // seed distribution and round-by-round odds.
-function renderNational() {
-  if (!LAST) return;
-  const {A, B, P} = LAST, N = A.N, F = A.F, byes = A.B, hosts = (F - byes) / 2, conf = S.view.conf;
-  const pIn = i => A.cfp[i] / N;
-  // Average finish, counting a missed field as seed F + 1.
+// The projected field: the F teams most likely to make it, seeded by
+// average finish (a missed field counts as seed F + 1). `byChance` lists
+// every team, most likely first.
+function projectField(A) {
+  const N = A.N, F = A.F;
   const pos = D.teams.map((_, i) => {
     let e = (F + 1) * (N - A.cfp[i]);
     for (let q = 0; q < F; q++) e += (q + 1) * A.seed[i * F + q];
     return e / N;
   });
-  const field = D.teams.map((_, i) => i).sort((a, b) => pIn(b) - pIn(a) || pos[a] - pos[b]).slice(0, F).sort((a, b) => pos[a] - pos[b]);
+  const byChance = D.teams.map((_, i) => i).sort((a, b) => A.cfp[b] - A.cfp[a] || pos[a] - pos[b]);
+  return {pos, byChance, field: byChance.slice(0, F).sort((a, b) => pos[a] - pos[b])};
+}
+
+function renderNational() {
+  if (!LAST) return;
+  const {A, B, P} = LAST, N = A.N, F = A.F, byes = A.B, hosts = (F - byes) / 2, conf = S.view.conf;
+  const pIn = i => A.cfp[i] / N, {pos, field} = projectField(A);
   const rec = i => `${Math.round(A.sw[i] / N)}–${Math.round(A.sl[i] / N)}`;
   const hl = i => conf && D.teams[i].conf === conf ? " hl" : "";
 
   const line = (q, role) => {
     const i = field[q], what = role === "bye" ? `bye ${pc(A.bye[i] / N)}` : role === "host" ? `hosts ${pc(A.host[i] / N)}` : `in ${pc(pIn(i))}`;
     return `<div class="tm${hl(i)}" title="${esc(D.teams[i].name)}: seed ${q + 1} in ${pc(A.seed[i * F + q] / N)} of seasons, in the field in ${pc(pIn(i))}">
-      <span class="sd">${q + 1}</span><span class="nm">${esc(sh(D.teams[i].name))} <span class="muted">${rec(i)}</span></span>
+      <span class="sd">${q + 1}</span><span class="nm">${esc(sh(D.teams[i].name))} <span class="rec">${rec(i)}</span></span>
       <span class="pr">${what}</span></div>`;
   };
   const slot = s => s <= byes
@@ -372,14 +430,12 @@ function renderNational() {
   const stageCols = Array.from({length: A.stages}, (_, k) => k);
   const d = (k, i) => B ? dl((A[k][i] - B[k][i]) / N) : "";
   const cell = (i, q) => {
-    const p = A.seed[i * F + q] / N * 100, shade = Math.min(100, p * 1.6);
-    const txt = p >= 0.5 ? Math.round(p) : p > 0 ? "·" : "";
-    return `<td class="hc" title="${esc(D.teams[i].name)}: seed ${q + 1} in ${p.toFixed(1)}% of seasons"
-      style="background:color-mix(in srgb, var(--accent) ${shade.toFixed(0)}%, transparent);${shade > 55 ? "color:#fff;" : ""}">${txt}</td>`;
+    const p = A.seed[i * F + q] / N * 100;
+    return heatCell(p, `${D.teams[i].name}: seed ${q + 1} in ${p.toFixed(1)}% of seasons`, "hc");
   };
   $("natTable").innerHTML = rows.length ? `<table class="nat"><thead><tr><th>Team</th><th>Conf</th>
       <th class="num">Makes CFP</th><th class="num" title="Gets in as one of the ${P.params.autoBids} highest-ranked conference champions">Auto bid</th>
-      <th class="num">Bye</th><th class="num">Hosts 1st rd</th><th class="num" title="Average seed in seasons it makes the field">Avg seed</th>
+      <th class="num">Bye</th><th class="num">Hosts 1st rd</th><th class="num" title="Projected wins above a bubble team's expected wins against the same schedule">SOR</th><th class="num" title="Average seed in seasons it makes the field">Avg seed</th>
       ${Array.from({length: F}, (_, q) => `<th class="hc">${q + 1}</th>`).join("")}
       ${stageCols.map(k => `<th class="num">${STAGE[A.M >> k] || ""}</th>`).join("")}</tr></thead><tbody>
     ${rows.map(i => {
@@ -388,7 +444,7 @@ function renderNational() {
       return `<tr class="${hl(i).trim()}"><td title="${esc(D.teams[i].name)}">${esc(sh(D.teams[i].name))}</td><td class="muted" style="white-space:nowrap">${esc(CONF_SHORT[D.teams[i].conf] || D.teams[i].conf)}</td>
         <td class="num">${pc(pIn(i))}${d("cfp", i)}</td><td class="num">${pc(A.auto[i] / N)}</td>
         <td class="num">${pc(A.bye[i] / N)}${d("bye", i)}</td><td class="num">${pc(A.host[i] / N)}${d("host", i)}</td>
-        <td class="num">${(avg / A.cfp[i]).toFixed(1)}</td>
+        <td class="num">${(A.sor[i] / N >= 0 ? "+" : "−") + Math.abs(A.sor[i] / N).toFixed(1)}</td><td class="num">${(avg / A.cfp[i]).toFixed(1)}</td>
         ${Array.from({length: F}, (_, q) => cell(i, q)).join("")}
         ${stageCols.map(k => `<td class="num">${pc(A.reach[i * A.stages + k] / N)}</td>`).join("")}</tr>`;
     }).join("")}
@@ -417,10 +473,9 @@ function renderHeat() {
   $("heat").innerHTML = `<table class="heat"><thead><tr><th>${byPlace ? "Place →" : "Conf wins →"}</th>
       ${labels.map(l => `<th>${l}</th>`).join("")}<th class="avg">Avg</th></tr></thead><tbody>
     ${order.map(i => `<tr><td title="${esc(D.teams[i].name)}">${esc(sh(D.teams[i].name))}</td>
-      ${labels.map((_, k) => {
-        const p = arr[i * stride + k] / N * 100, shade = Math.min(100, p * 1.6);
-        const txt = p >= 0.5 ? Math.round(p) : p > 0 ? "·" : "";
-        return `<td style="background:color-mix(in srgb, var(--accent) ${shade.toFixed(0)}%, transparent);${shade > 55 ? "color:#fff;" : ""}">${txt}</td>`;
+      ${labels.map((l, k) => {
+        const p = arr[i * stride + k] / N * 100;
+        return heatCell(p, `${D.teams[i].name}: ${byPlace ? `finishes ${l}` : `${l} conference wins`} in ${p.toFixed(1)}% of seasons`);
       }).join("")}
       <td class="avg num">${byPlace ? exp.get(i).toFixed(1) : (A.scw[i] / N).toFixed(1)}</td></tr>`).join("")}
     </tbody></table>`;
@@ -438,21 +493,43 @@ function renderBids() {
     const vals = d.slice(0, top + 1), mx = Math.max(...vals) || 1;
     $("bidAvg").textContent = `${S.view.conf} average: ${avg(d).toFixed(2)} teams`;
     $("bids").hidden = false;
-    $("bids").innerHTML = vals.map((v, b) => `<div class="c">
-        <span class="num">${(v * 100).toFixed(1)}%</span>
-        <div class="b" style="height:${(v / mx * 100).toFixed(1)}px"></div>
-        <span class="muted">${b}</span></div>`).join("");
+    $("bids").innerHTML = `<div class="bids">${vals.map(v => `<div class="c"><span>${pc(v)}</span>
+        <div class="b" style="height:${(v / mx * 96).toFixed(1)}px"></div></div>`).join("")}</div>
+      <div class="bids-x">${vals.map((_, b) => `<span>${b}</span>`).join("")}</div>
+      <div class="muted" style="max-width:520px;text-align:center">teams selected</div>`;
   } else {
     $("bidAvg").textContent = "";
     $("bids").hidden = true;
   }
   const rows = P.confs.map((x, k) => ({name: x.name, d: dist(k)})).map(z => ({...z, avg: avg(z.d)})).sort((a, b) => b.avg - a.avg);
-  $("bidTable").innerHTML = `<table><thead><tr><th>Conference</th><th class="num">Avg bids</th><th class="num">0 bids</th>
-    <th class="num">1</th><th class="num">2</th><th class="num">3+</th></tr></thead><tbody>
-    ${rows.map(z => `<tr${z.name === S.view.conf ? ' style="font-weight:600"' : ""}><td>${esc(z.name)}</td><td class="num">${z.avg.toFixed(2)}</td>
-      <td class="num">${pc(z.d[0])}</td><td class="num">${pc(z.d[1] || 0)}</td><td class="num">${pc(z.d[2] || 0)}</td>
-      <td class="num">${pc(z.d.slice(3).reduce((s, v) => s + v, 0))}</td></tr>`).join("")}
+  const cols = [0, 1, 2, 3, 4], tail = 5;
+  $("bidTable").innerHTML = `<table><thead><tr><th>Conference</th><th class="num">Avg bids</th>
+    ${cols.map(b => `<th class="num">${b} bid${b === 1 ? "" : "s"}</th>`).join("")}<th class="num">${tail}+</th></tr></thead><tbody>
+    ${rows.map(z => `<tr${z.name === S.view.conf ? ' class="hl"' : ""}><td>${esc(CONF_SHORT[z.name] || z.name)}</td><td class="num">${z.avg.toFixed(2)}</td>
+      ${cols.map(b => `<td class="num">${z.d[b] ? pc(z.d[b]) : "—"}</td>`).join("")}
+      <td class="num">${(t => t ? pc(t) : "—")(z.d.slice(tail).reduce((s, v) => s + v, 0))}</td></tr>`).join("")}
     </tbody></table>`;
+}
+
+// Opening paragraph: the headline numbers in words.
+function renderSummary() {
+  if (!LAST) { $("summary").textContent = ""; return; }
+  const {A, P} = LAST, N = A.N, F = A.F, p = (arr, i) => pc(arr[i] / N), nm = i => `<b>${esc(D.teams[i].name)}</b>`;
+  const top = arr => D.teams.reduce((b, _, i) => arr[i] > arr[b] ? i : b, 0);
+  const {byChance} = projectField(A), natl = top(A.natl), one = top(A.seed.filter((_, k) => k % F === 0));
+  const last = byChance[F - 1], out = byChance[F];
+  let html = `Across ${N.toLocaleString()} simulated seasons, ${nm(natl)} is the most likely national champion (${p(A.natl, natl)})`
+    + (one === natl ? ` and the most likely No.&nbsp;1 seed (${pc(A.seed[one * F] / N)}).` : `; ${nm(one)} is the most likely No.&nbsp;1 seed (${pc(A.seed[one * F] / N)}).`)
+    + ` The projected last team in is ${nm(last)} (${p(A.cfp, last)}); the first team out is ${nm(out)} (${p(A.cfp, out)}).`;
+  const c = P.confs.findIndex(x => x.name === S.view.conf);
+  if (c >= 0 && P.confs[c].format !== "none") {
+    const mem = P.confs[c].members, ch = mem.reduce((b, i) => A.ch[i] > A.ch[b] ? i : b, mem[0]);
+    const d = Array.from({length: F + 1}, (_, b) => A.bids[c * (F + 1) + b] / N), avg = d.reduce((s, v, b) => s + v * b, 0);
+    const five = d.slice(5).reduce((s, v) => s + v, 0);
+    html += ` In the ${esc(S.view.conf)}, ${nm(ch)} wins the conference ${p(A.ch, ch)} of the time, and the league averages ${avg.toFixed(1)} playoff bids`
+      + (five >= 0.001 ? `, with five or more in ${pc(five)} of seasons.` : ".");
+  }
+  $("summary").innerHTML = html;
 }
 
 function renderAll() {
@@ -462,7 +539,7 @@ function renderAll() {
   renderInfo();
   renderTeams();
   renderGames();
-  renderResults(); renderNational(); renderHeat(); renderBids();
+  renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids();
 }
 
 // ---- Import / export / reset ------------------------------------------------
@@ -495,7 +572,7 @@ function bindStatic() {
   $("runBtn").onclick = run;
   $("refreshBtn").onclick = refresh;
   $("clearBtn").onclick = () => { S.forced = {}; save(); renderGames(); run(); };
-  $("confSel").onchange = () => { S.view.conf = $("confSel").value; S.view.sort = null; save(); renderTeams(); renderGames(); renderResults(); renderNational(); renderHeat(); renderBids(); };
+  $("confSel").onchange = () => { S.view.conf = $("confSel").value; S.view.sort = null; save(); renderTeams(); renderGames(); renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); };
   $("weekSel").onchange = () => { S.view.week = +$("weekSel").value; save(); renderGames(); };
   $("vPlace").onclick = () => { S.view.heat = "place"; save(); renderHeat(); };
   $("vWins").onclick = () => { S.view.heat = "wins"; save(); renderHeat(); };

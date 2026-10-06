@@ -85,9 +85,17 @@ Multi-team ties start over at step 1 whenever a team is separated. Each conferen
 
 **Conference title games.** By default the top two teams meet. Conferences with divisions (currently the Sun Belt) match the division winners instead. The AAC, Mountain West, Sun Belt, Conference USA and Pac-12 host the game at the higher seed; the rest play at a neutral site. Once the real matchup is on the schedule, the simulator plays that game, and you can force it like any other.
 
-**Playoff.** Every team gets a committee score:
+**Playoff.** Every team gets a committee score. By default it's based on **strength of record** (SOR):
 
-> rating − loss penalty × losses + champion bonus (conference champions) + SoS weight × average opponent rating + noise
+> rating + SOR weight × SOR + champion bonus (conference champions) + noise
+
+SOR is a team's wins minus the wins a bubble team would expect against the same schedule, at the same sites, title game included. The bubble team is the team with the field-size-th best rating (the 12th best in a 12-team field). A loss to a top team costs little, because a bubble team would usually lose that game too; a loss to a weak team costs nearly a full win. With the default weight of 6, one win above the bubble team is worth 6 points of committee score.
+
+The older **flat loss penalty** model is still available under Settings:
+
+> rating − loss penalty × losses + SoS weight × average opponent rating + champion bonus + noise
+
+It charges every loss the same regardless of opponent. That's why it undercounts deep conferences such as the SEC, whose contenders take losses from each other: with this season's data it gives the SEC five or more bids in about 6% of seasons, against about 19% with SOR.
 
 The top *auto bids* conference champions by score get in. The highest remaining scores fill the rest of the field, and seeding follows score order. The top *byes* seeds skip the first round, which is played at the higher seed; later rounds are neutral. The field size, byes and auto bids can be changed (for example to 16 teams with no byes). The default is the 12-team, 5 + 7 format.
 
