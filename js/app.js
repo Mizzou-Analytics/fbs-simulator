@@ -633,7 +633,7 @@ function renderTeamPage() {
   if (HIST && HIST.length > 1) html += oddsChart(t.id, none);
 
   const gi = GAME_INDEX(), rows = D.games.filter(g => g.home === t.id || g.away === t.id);
-  html += `<h3>Schedule</h3><table><thead><tr><th>Wk</th><th>Opponent</th><th class="num">Result or win chance</th>
+  html += `<h3>Schedule</h3><div class="scroll"><table><thead><tr><th>Wk</th><th>Opponent</th><th class="num">Result or win chance</th>
     <th class="num">Playoff odds, win / loss</th>${none ? "" : `<th class="num">${esc(t.conf)} title, win / loss</th>`}</tr></thead><tbody>
     ${rows.map(g => {
       const home = g.home === t.id, opp = home ? g.away : g.home, oppName = opp ? tl(opp, D.teams[IDX.get(opp)].name) : esc(home ? g.awayName : g.homeName);
@@ -651,7 +651,7 @@ function renderTeamPage() {
       return `<tr><td class="num">${g.week}</td><td><span class="muted">${where}</span> ${oppName}${g.champ ? ` <span class="muted">(title game)</span>` : ""}</td>
         <td class="num">${res}</td><td class="num">${cfp}</td>${none ? "" : `<td class="num">${ch}</td>`}</tr>`;
     }).join("")}
-    </tbody></table>`;
+    </tbody></table></div>`;
   $("teamView").innerHTML = html;
 }
 
