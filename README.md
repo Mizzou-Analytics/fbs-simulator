@@ -73,15 +73,24 @@ The workflow log lists any team names it couldn't match.
 
 **Ratings sources.** You choose the source in the page: SP+ (the default), FPI, Elo, SRS or an optional ratings sheet (whichever are present), or the **results model**. The results model rebuilds ratings from this season's scores. It starts from the preseason ratings, weighted as *prior weight* games, and caps blowout margins at *margin cap*. You can also override any team's rating in the Teams table.
 
-**Conference standings.** Standings are ordered by conference winning percentage. Ties are broken with a procedure modeled on the SEC's rules, applied to every conference:
+**Conference standings.** Standings are ordered by conference winning percentage. Each conference breaks ties with its own list of steps, drawn from:
 
-1. Head-to-head among the tied teams, counting games already played.
-2. Record against common conference opponents.
-3. Record against the highest-placed common opponent, working down the standings.
-4. Opponents' combined conference winning percentage.
-5. A ratings metric.
+- **h2h**: head-to-head among the tied teams, counting games already played.
+- **common**: record against common conference opponents.
+- **tiers**: record against the highest-placed common opponent, working down the standings.
+- **opp**: opponents' combined conference winning percentage.
+- **wins**: total wins.
+- **rank**: the committee's ranking going into title weekend.
+- **metric**: a ratings metric, standing in for the computer composites conferences use.
 
-Multi-team ties start over at step 1 whenever a team is separated. Each conference's real tiebreaker rules differ in the details.
+| Conference | Steps |
+| --- | --- |
+| SEC, Big Ten, ACC | h2h, common, tiers, opp, metric |
+| Big 12 | h2h, common, tiers, opp, wins, metric |
+| Sun Belt | h2h, common, tiers, rank, metric |
+| American, Mountain West, Pac-12, MAC, C-USA | h2h, common, rank, metric |
+
+Multi-team ties start over at step 1 whenever a team is separated. The orders follow each conference's published procedure as best we know it, simplified where a step can't be simulated. They live in `CONF_TIEBREAKS` in `js/model.js`. A season file can override any conference by giving it a `tiebreak` list.
 
 **Conference title games.** By default the top two teams meet. Conferences with divisions (currently the Sun Belt) match the division winners instead. The AAC, Mountain West, Sun Belt, Conference USA and Pac-12 host the game at the higher seed; the rest play at a neutral site. Once the real matchup is on the schedule, the simulator plays that game, and you can force it like any other.
 
@@ -95,13 +104,34 @@ The older **flat loss penalty** model is still available under Settings:
 
 > rating − loss penalty × losses + SoS weight × average opponent rating + champion bonus + noise
 
-It charges every loss the same regardless of opponent. That's why it undercounts deep conferences such as the SEC, whose contenders take losses from each other: with this season's data it gives the SEC five or more bids in about 6% of seasons, against about 19% with SOR.
+Two adjustments apply to either model:
+
+- **Head-to-head:** if a team finishes within the *head-to-head window* of a team it beat, it moves just ahead of that team.
+- **Title-game loss weight:** a lost conference title game counts as this fraction of a loss (0 ignores it, 1 counts it fully).
+
+The *bye seeds* setting switches to the 2024 rule, where the four highest-ranked conference champions got the byes.
+
+The flat model charges every loss the same regardless of opponent. That's why it undercounts deep conferences such as the SEC, whose contenders take losses from each other: with this season's data it gives the SEC five or more bids in about 6% of seasons, against about 19% with SOR.
 
 The top *auto bids* conference champions by score get in. The highest remaining scores fill the rest of the field, and seeding follows score order. The top *byes* seeds skip the first round, which is played at the higher seed; later rounds are neutral. The field size, byes and auto bids can be changed (for example to 16 teams with no byes). The default is the 12-team, 5 + 7 format.
 
 **National view.** The page projects the full playoff field: the teams most likely to make it, seeded by average finish and laid out as a bracket with byes and first-round hosts. Below it, every contender's odds of making the field, getting an auto bid, a bye or a home first-round game, each seed, and reaching each round.
 
+**Games that matter and team pages.** For every remaining game, the simulator tracks each team's playoff and conference-title odds in seasons where it wins versus loses. The What-if section ranks the selected week's games by how much they move those odds. Each team's page shows its outlook, its published odds by day, and its full schedule with results, win chances and what each remaining game is worth. Team names across the page link to their team page.
+
+**Odds history.** After each data update, the workflow simulates the season with the default settings and saves that day's odds to `data/odds-history.json`. The page draws each team's playoff-odds trend from it and names the biggest risers and fallers of the past week. Your own settings and what-ifs don't change these published numbers.
+
 **What-ifs.** Each simulated season draws its random numbers from its own seeded generator, in a fixed order whether or not a game is forced. So the run with your what-ifs and the baseline run without them see identical luck everywhere else. The colored +/− numbers show only what your what-ifs changed. Games are keyed by their schedule id, so rematches are separate what-ifs.
+
+## Backtest
+
+`scripts/backtest.mjs` checks the model against past seasons:
+
+- It rebuilds each season as it stood at week 6, at week 10 and on selection day. It uses Elo ratings as of that week and hides later scores, so nothing from the future leaks in.
+- It reads the actual conference champions and playoff bracket from CFBD.
+- It scores the forecasts and searches for better settings.
+
+Run it from the Actions tab (**Backtest**, choose the seasons) or locally with `CFBD_API_KEY=... node scripts/backtest.mjs --years 2024,2025`. The report is in the job summary.
 
 ## Files
 
@@ -112,6 +142,8 @@ The top *auto bids* conference champions by score get in. The highest remaining 
 | `js/sim.js` | Simulation, tiebreakers, playoff bracket |
 | `js/worker.js` | Runs the simulation in a Web Worker so the page stays responsive |
 | `scripts/update-data.mjs`, `scripts/sources.mjs` | Data pipeline (CFBD, plus an optional ratings sheet) |
+| `scripts/odds.mjs` | Daily odds snapshots for `data/odds-history.json` |
+| `scripts/backtest.mjs`, `scripts/backtest-lib.mjs` | Past-season backtest |
 | `scripts/make-demo-data.mjs` | Generates `data/demo.json` |
 | `data/sources.json` | Which CFBD ratings to pull, and optional ratings-sheet settings |
 | `test/` | `node --test` (Node 20+) |
