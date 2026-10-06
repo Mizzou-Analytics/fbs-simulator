@@ -15,7 +15,23 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;",
 const sh = n => SHORT[n] || n;
 // A team name that opens its team page.
 const tl = (id, name = null) => { const t = D.teams[IDX.get(id)]; return `<a href="#teamSec" class="tl" data-team="${esc(id)}">${esc(name || sh(t.name))}</a>`; };
-const pc = v => v > 0 && v < 0.001 ? "<0.1%" : (v * 100).toFixed(1) + "%";
+// Whole percentages, never claiming certainty the model doesn't have.
+const pc = v => !(v > 0) ? "0%" : v < 0.005 ? "<1%" : v >= 1 ? "100%" : v > 0.995 ? ">99%" : Math.round(v * 100) + "%";
+// The same in prose: "24 percent", "less than 1 percent".
+const pw = v => !(v > 0) ? "no" : v < 0.005 ? "less than 1 percent" : v >= 1 ? "100 percent" : v > 0.995 ? "more than 99 percent" : Math.round(v * 100) + " percent";
+const NUMW = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "11", "12"];
+const AP_MONTH = ["Jan.", "Feb.", "March", "April", "May", "June", "July", "Aug.", "Sept.", "Oct.", "Nov.", "Dec."];
+// "Oct. 6 at 6:21 p.m. ET" (Eastern time, AP style).
+function apTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {timeZone: "America/New_York", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true})
+    .formatToParts(d).map(x => [x.type, x.value]));
+  return `${AP_MONTH[+p.month - 1]} ${p.day} at ${p.hour}:${p.minute} ${p.dayPeriod === "PM" ? "p.m." : "a.m."} ET`;
+}
+// "A", "A and B", "A, B and C"
+const andList = xs => xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+const apDay = ymd => { const [, m, d] = ymd.split("-").map(Number); return `${AP_MONTH[m - 1]} ${d}`; };
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } },
@@ -117,10 +133,11 @@ function pruneForced() {
 }
 
 function renderInfo() {
-  const parts = [`${D.season} season`, `through week ${D.currentWeek - 1}`];
-  if (D.updated) parts.push(`data updated ${fmtDate(D.updated)}`);
-  if (D.source) parts.push(D.source);
-  $("dataInfo").textContent = parts.join(" · ");
+  const parts = [];
+  if (D.updated) parts.push(`Updated <b>${esc(apTime(D.updated))}</b>`);
+  parts.push(`through week ${D.currentWeek - 1} of the ${D.season} season`);
+  if (D.source) parts.push(`data from ${esc(D.source)}`);
+  $("dataInfo").innerHTML = parts.join(" · ");
   const b = $("banner"), msgs = [];
   if (origin === "demo") msgs.push("Showing <b>demo data</b>: the teams are real, but the ratings, schedule and scores are made up. Real data appears once the update workflow publishes <code>data/season.json</code> (see the README).");
   if (origin === "imported") msgs.push(`Using an imported season file. <button class="link" id="usePublished">Switch back to published data</button>`);
@@ -147,7 +164,7 @@ function startPolling() {
       const res = await fetch("data/season.json", {cache: "no-cache"});
       const raw = res.ok && await res.json();
       if (raw && raw.updated && raw.updated !== D.updated) {
-        showMessage(`New scores or ratings are available (updated ${esc(fmtDate(raw.updated))}). <button class="link" id="loadNew">Load and re-run</button>`);
+        showMessage(`New scores or ratings are available (updated ${esc(apTime(raw.updated))}). <button class="link" id="loadNew">Load and re-run</button>`);
         $("loadNew").onclick = refresh;
       }
     } catch { /* offline: try again next time */ }
@@ -266,6 +283,8 @@ function renderTeams() {
 const gName = (g, side) => side === "h" ? (g.home ? D.teams[IDX.get(g.home)].name : g.homeName) : (g.away ? D.teams[IDX.get(g.away)].name : g.awayName);
 const gConf = (g, conf) => (g.home && D.teams[IDX.get(g.home)].conf === conf) || (g.away && D.teams[IDX.get(g.away)].conf === conf);
 
+// Pick the winners: two buttons per game. Clicking a team forces its win;
+// clicking it again undoes the pick.
 function renderGames() {
   const conf = S.view.conf, rem = D.games.filter(g => g.hp == null && (!conf || gConf(g, conf)));
   const weeks = [...new Set(rem.map(g => g.week))].sort((a, b) => a - b);
@@ -278,22 +297,21 @@ function renderGames() {
   $("games").innerHTML = list.length ? list.map(g => {
     const A = gName(g, "a"), H = gName(g, "h"), f = S.forced[g.id] || 0;
     const ph = phi((rating(g.home) - rating(g.away) + (g.neutral ? 0 : hfa)) / sd);
-    return `<div class="gm">
-      <span class="t ${f ? "forced" : ""}" title="${esc(A)} ${g.neutral ? "vs" : "at"} ${esc(H)}">${esc(sh(A))} ${g.neutral ? "vs" : "@"} ${esc(sh(H))}${g.champ ? " · title game" : ""}</span>
-      <span class="num muted" style="width:40px">${Math.round(ph * 100)}%</span>
-      <select data-k="${esc(g.id)}" aria-label="Outcome for ${esc(A)} ${g.neutral ? "vs" : "at"} ${esc(H)}">
-        <option value="0"${f === 0 ? " selected" : ""}>Simulate</option>
-        <option value="1"${f === 1 ? " selected" : ""}>${esc(sh(A))} wins</option>
-        <option value="2"${f === 2 ? " selected" : ""}>${esc(sh(H))} wins</option>
-      </select></div>`;
-  }).join("") : `<div class="muted">No remaining games${conf ? ` involving ${esc(conf)} teams` : ""}.</div>`;
-  $("games").querySelectorAll("select").forEach(el => el.onchange = () => {
-    const v = +el.value;
-    if (v) S.forced[el.dataset.k] = v; else delete S.forced[el.dataset.k];
-    save(); renderGames(); run();
-  });
+    const btn = (v, nameTxt, p) => `<button data-k="${esc(g.id)}" data-v="${v}" class="${f === v ? "on" : f ? "off" : ""}" aria-pressed="${f === v}"
+        title="${f === v ? "Undo this pick" : `Pick ${esc(nameTxt)} to win`}">${esc(sh(nameTxt))}<span>${f === v ? "Your pick" : `${pc(p)} to win`}</span></button>`;
+    return `<div class="pick">${btn(1, A, 1 - ph)}<span class="at">${g.neutral ? "vs." : "at"}</span>${btn(2, H, ph)}
+      ${g.champ ? `<span class="tag">Conference championship game</span>` : ""}</div>`;
+  }).join("") : `<p class="note">No remaining games${conf ? ` involving ${esc(conf)} teams` : ""}.</p>`;
   const c = Object.keys(S.forced).length, here = list.filter(g => S.forced[g.id]).length;
-  $("fc").textContent = c ? `${c} game${c > 1 ? "s" : ""} forced${c !== here ? ` (${here} this week)` : ""}` : "";
+  $("fc").textContent = c ? `${c} game${c > 1 ? "s" : ""} picked${c !== here ? ` (${here} this week)` : ""}` : "";
+  $("clearBtn").disabled = !c;
+}
+
+// Sets or clears a pick from any pick button (data-k = game id, data-v =
+// 1 for the away team, 2 for the home team).
+function togglePick(id, v) {
+  if (S.forced[id] === v) delete S.forced[id]; else S.forced[id] = v;
+  save(); renderGames(); run();
 }
 
 // ---- Running -----------------------------------------------------------------
@@ -321,7 +339,7 @@ function run() {
     LAST = {A, B: any ? BASE : null, P};
     setProgress(null);
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
-    $("status").textContent = `${A.N.toLocaleString()} seasons in ${secs}s` + (any ? " · colored numbers = change vs. no what-ifs (same random draws), in points" : "");
+    $("status").textContent = `Based on ${A.N.toLocaleString()} simulations (${secs} seconds).` + (any ? " Green and red numbers show the change from your picks, in percentage points." : "");
     renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); renderBigGames(); renderTeamPage();
   };
   const fail = msg => { if (id === runId) { setProgress(null); $("status").textContent = `Simulation failed: ${msg}`; } };
@@ -352,23 +370,24 @@ function run() {
 // ---- Results -----------------------------------------------------------------
 
 const COLS = [
-  {k: "name", label: "Team"}, {k: "conf", label: "Conf", allOnly: true}, {k: "rating", label: "Rating", num: true},
-  {k: "rec", label: "Record", num: true}, {k: "proj", label: "Proj W–L", num: true}, {k: "projc", label: "Proj conf", num: true},
-  {k: "t2", label: "Title game", num: true, p: true}, {k: "ch", label: "Conf champ", num: true, p: true},
-  {k: "cfp", label: "Makes CFP", num: true, p: true}, {k: "bye", label: "Bye", num: true, p: true},
-  {k: "natl", label: "Natl champ", num: true, p: true}
+  {k: "name", label: "Team"}, {k: "conf", label: "Conf.", allOnly: true}, {k: "rating", label: "Rating", num: true},
+  {k: "rec", label: "Record", num: true}, {k: "proj", label: "Proj. record", num: true}, {k: "projc", label: "Proj. conf.", num: true},
+  {k: "t2", label: "Reach title game", num: true, p: true}, {k: "ch", label: "Win conference", num: true, p: true},
+  {k: "cfp", label: "Make playoff", num: true, p: true}, {k: "bye", label: "Get a bye", num: true, p: true},
+  {k: "natl", label: "Win title", num: true, p: true}
 ];
 
-// Change vs. the no-what-if run, in percentage points; hidden under 0.5.
+// Change vs. the no-picks run, in percentage points; hidden under 1.
 function dl(v) {
-  const x = v * 100;
-  if (Math.abs(x) < 0.5) return "";
-  return ` <span class="d" style="color:var(--${x > 0 ? "good" : "bad"})">${x > 0 ? "+" : ""}${x.toFixed(1)}</span>`;
+  const x = Math.round(v * 100);
+  if (!x) return "";
+  return ` <span class="d" style="color:var(--${x > 0 ? "good" : "bad"})">${x > 0 ? "+" : "−"}${Math.abs(x)}</span>`;
 }
 
 function renderResults() {
   if (!LAST) return;
   const {A, B, P} = LAST, N = A.N, all = !S.view.conf;
+  renderConfIntro();
   const rows = D.teams.map((t, i) => {
     const z = {t, i, name: t.name, conf: t.conf, rating: P.R[i], rec: REC[i].w - REC[i].l, proj: A.sw[i] / N, projc: A.scw[i] / N,
       none: P.confs[P.confOf[i]].format === "none"};
@@ -390,7 +409,7 @@ function renderResults() {
         <td class="num">${z.rating.toFixed(1)}</td>
         <td class="num">${r.w}–${r.l}</td>
         <td class="num">${z.proj.toFixed(1)}–${(A.sl[z.i] / N).toFixed(1)}</td>
-        <td class="num">${z.none ? "—" : `${z.projc.toFixed(1)}–${(A.scl[z.i] / N).toFixed(1)}`}</td>
+        <td class="num">${z.none ? "–" : `${z.projc.toFixed(1)}–${(A.scl[z.i] / N).toFixed(1)}`}</td>
         ${["t2", "ch", "cfp", "bye", "natl"].map(k => z.none && (k === "t2" || k === "ch") ? `<td class="num muted">—</td>`
           : `<td class="num pb" style="--p:${(z[k] * 100).toFixed(1)}%">${pc(z[k])}${B ? dl(z["d" + k]) : ""}</td>`).join("")}</tr>`;
     }).join("")}
@@ -408,7 +427,7 @@ function renderResults() {
 
 const CONF_SHORT = {"FBS Independents": "Independent", "American Athletic": "American", "Mountain West": "Mountain West",
   "Conference USA": "C-USA", "Mid-American": "MAC"};
-const STAGE = {1: "Title", 2: "Final", 4: "Semis", 8: "QF", 16: "R16", 32: "R32"};
+const STAGE = {1: "Win title", 2: "Final", 4: "Semis", 8: "Quarters", 16: "Round of 16", 32: "Round of 32"};
 const ROUND = {2: "Semifinal", 4: "Quarterfinal", 8: "Quarterfinal", 16: "Round of 16"};
 
 // National view: the projected field and bracket, then every contender's
@@ -449,31 +468,76 @@ function renderNational() {
     pods.push(`<div class="pod"><div class="lbl">${ROUND[A.M] || "Round"} ${j / 2 + 1}</div>${pair.map(slot).join('<div class="sep"></div>')}</div>`);
   }
   $("bracket").innerHTML = pods.join("");
-  $("natNote").textContent = `${F}-team field · ${byes} byes · ${hosts} first-round hosts`;
+  const w = x => NUMW[x] || String(x), cap = x => ({10: "Ten", 11: "Eleven", 12: "Twelve", 16: "Sixteen"})[x] || (w(x).charAt(0).toUpperCase() + w(x).slice(1));
+  $("natIntro").textContent = `${cap(F)} teams make the field: the ${w(P.params.autoBids)} highest-ranked conference champions and the ${w(F - P.params.autoBids)} best remaining teams.`
+    + (byes ? ` Seeds 1 through ${byes} get first-round byes, and seeds ${byes + 1} through ${byes + hosts} host first-round games.` : ` Seeds 1 through ${hosts} host first-round games.`)
+    + ` This is the most likely field, seeded by each team's average finish across all simulations.`;
+  $("natNote").textContent = `Each team's chance of a bye, of hosting a first-round game, or of making the field. Hover over a team for its chance of that exact seed.${conf ? ` ${conf} teams are in red.` : ""}`;
+  renderNatChart();
 
   const rows = D.teams.map((_, i) => i).filter(i => pIn(i) >= 0.005).sort((a, b) => pIn(b) - pIn(a) || pos[a] - pos[b]);
-  const stageCols = Array.from({length: A.stages}, (_, k) => k);
+  // The last three rounds (semifinals, final, title) keep the table readable.
+  const stageCols = Array.from({length: A.stages}, (_, k) => k).slice(-3);
   const d = (k, i) => B ? dl((A[k][i] - B[k][i]) / N) : "";
   const cell = (i, q) => {
     const p = A.seed[i * F + q] / N * 100;
-    return heatCell(p, `${D.teams[i].name}: seed ${q + 1} in ${p.toFixed(1)}% of seasons`, "hc");
+    return heatCell(p, `${D.teams[i].name}: No. ${q + 1} seed in ${pc(p / 100)} of simulations`, "hc");
   };
-  $("natTable").innerHTML = rows.length ? `<table class="nat"><thead><tr><th>Team</th><th>Conf</th>
-      <th class="num">Makes CFP</th>${HIST && HIST.length > 1 ? `<th title="Published playoff odds by day, ${esc(fmtDay(HIST[0].date))} to ${esc(fmtDay(HIST[HIST.length - 1].date))} (0–100% scale)">Trend</th>` : ""}<th class="num" title="Gets in as one of the ${P.params.autoBids} highest-ranked conference champions">Auto bid</th>
-      <th class="num">Bye</th><th class="num">Hosts 1st rd</th><th class="num" title="Projected wins above a bubble team's expected wins against the same schedule">SOR</th><th class="num" title="Average seed in seasons it makes the field">Avg seed</th>
-      ${Array.from({length: F}, (_, q) => `<th class="hc">${q + 1}</th>`).join("")}
+  $("natTable").innerHTML = rows.length ? `<table class="nat"><thead><tr><th>Team</th><th>Conf.</th>
+      <th class="num">Make playoff</th>${HIST && HIST.length > 1 ? `<th title="Playoff chances by day, ${esc(apDay(HIST[0].date))} to ${esc(apDay(HIST[HIST.length - 1].date))}">Trend</th>` : ""}<th class="num" title="Gets in as one of the ${P.params.autoBids} highest-ranked conference champions">Auto bid</th>
+      <th class="num">Bye</th><th class="num">Host 1st round</th><th class="num" title="Projected wins above a bubble team's expected wins against the same schedule">SOR</th><th class="num" title="Average seed in simulations where it makes the field">Avg. seed</th>
       ${stageCols.map(k => `<th class="num">${STAGE[A.M >> k] || ""}</th>`).join("")}</tr></thead><tbody>
     ${rows.map(i => {
       let avg = 0;
       for (let q = 0; q < F; q++) avg += (q + 1) * A.seed[i * F + q];
       return `<tr class="${hl(i).trim()}"><td title="${esc(D.teams[i].name)}">${tl(D.teams[i].id)}</td><td class="muted" style="white-space:nowrap">${esc(CONF_SHORT[D.teams[i].conf] || D.teams[i].conf)}</td>
-        <td class="num">${pc(pIn(i))}${d("cfp", i)}</td>${HIST && HIST.length > 1 ? `<td>${sparkline(histSeries(D.teams[i].id), 56, 16, [0, 1])}</td>` : ""}<td class="num">${pc(A.auto[i] / N)}</td>
+        <td class="num big">${pc(pIn(i))}${d("cfp", i)}</td>${HIST && HIST.length > 1 ? `<td>${sparkline(histSeries(D.teams[i].id), 56, 16, [0, 1])}</td>` : ""}<td class="num">${pc(A.auto[i] / N)}</td>
         <td class="num">${pc(A.bye[i] / N)}${d("bye", i)}</td><td class="num">${pc(A.host[i] / N)}${d("host", i)}</td>
         <td class="num">${(A.sor[i] / N >= 0 ? "+" : "−") + Math.abs(A.sor[i] / N).toFixed(1)}</td><td class="num">${(avg / A.cfp[i]).toFixed(1)}</td>
-        ${Array.from({length: F}, (_, q) => cell(i, q)).join("")}
         ${stageCols.map(k => `<td class="num">${pc(A.reach[i * A.stages + k] / N)}</td>`).join("")}</tr>`;
     }).join("")}
-    </tbody></table>` : `<div class="muted">No team made the field.</div>`;
+    </tbody></table>
+    <details style="margin-top:14px"><summary>Chance of each seed</summary>
+      <p class="note">Darker is more likely; a dot is under 1 percent.</p>
+      <div class="scroll"><table class="nat seeds"><thead><tr><th>Team</th>${Array.from({length: F}, (_, q) => `<th class="hc">${q + 1}</th>`).join("")}</tr></thead><tbody>
+      ${rows.map(i => `<tr class="${hl(i).trim()}"><td>${tl(D.teams[i].id)}</td>${Array.from({length: F}, (_, q) => cell(i, q)).join("")}</tr>`).join("")}
+      </tbody></table></div></details>` : `<div class="muted">No team made the field.</div>`;
+}
+
+// Published playoff chances by day for the bubble teams (between 15 and 85
+// percent today) and the team being followed, labeled at the line ends.
+function renderNatChart() {
+  const el = $("natChart");
+  if (!HIST || HIST.length < 2) { el.innerHTML = ""; return; }
+  const last = HIST[HIST.length - 1];
+  const ids = D.teams.map(t => t.id).filter(id => (last.cfp[id] || 0) >= 0.15 && (last.cfp[id] || 0) <= 0.85)
+    .sort((a, b) => last.cfp[b] - last.cfp[a]).slice(0, 8);
+  if (S.view.team && !ids.includes(S.view.team) && IDX.has(S.view.team)) ids.push(S.view.team);
+  if (!ids.length) { el.innerHTML = ""; return; }
+  el.innerHTML = `<h3>How the bubble has moved</h3><p class="note">Published playoff chances by day for teams now between 15 and 85 percent${S.view.team ? `, with ${esc(D.teams[IDX.get(S.view.team)].name)} in red` : ""}.</p>`
+    + lineChart(ids.map(id => ({id, vals: histSeries(id), cls: id === S.view.team ? "hl" : ""})), {w: 760, h: 260});
+}
+
+// Lines on a 0–100% scale over the published dates, each labeled at its
+// right end (labels nudged apart so they don't collide). Optional marks
+// annotate dates along the bottom.
+function lineChart(series, {w = 760, h = 240, marks = []} = {}) {
+  const padL = 34, padR = 150, padT = 10, padB = 34, n = HIST.length;
+  const t0 = new Date(HIST[0].date + "T12:00:00").getTime(), t1 = new Date(HIST[n - 1].date + "T12:00:00").getTime();
+  const xd = ms => padL + (ms - t0) / Math.max(1, t1 - t0) * (w - padL - padR);
+  const x = k => xd(new Date(HIST[k].date + "T12:00:00").getTime()), y = p => padT + (1 - p) * (h - padT - padB);
+  const path = vals => vals.map((v, k) => `${k ? "L" : "M"}${x(k).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const ends = series.map(s => ({s, y: y(s.vals[n - 1])})).sort((a, b) => a.y - b.y);
+  for (let k = 1; k < ends.length; k++) ends[k].y = Math.max(ends[k].y, ends[k - 1].y + 13);
+  const grid = [0, 0.25, 0.5, 0.75, 1].map(p => `<line x1="${padL}" x2="${w - padR}" y1="${y(p)}" y2="${y(p)}" class="${p ? "grid" : "axis"}"/>
+    <text x="${padL - 6}" y="${y(p) + 4}" text-anchor="end">${p * 100}${p === 1 ? "%" : ""}</text>`).join("");
+  const mk = marks.filter(m => m.ms >= t0 && m.ms <= t1).map(m => `<line x1="${xd(m.ms)}" x2="${xd(m.ms)}" y1="${y(0)}" y2="${y(0) + 5}" class="gm"/>
+    <text x="${xd(m.ms)}" y="${y(0) + 16}" text-anchor="middle">${esc(m.label)}</text>`).join("");
+  const lines = series.map(s => `<path d="${path(s.vals)}" class="${s.cls === "hl" ? "lhl" : s.cls === "main" ? "l1" : s.cls === "second" ? "l2" : "lo"}"/>`).join("");
+  const labels = ends.map(e => `<text x="${w - padR + 6}" y="${e.y + 4}" class="${e.s.cls === "hl" ? "hl" : e.s.cls === "main" ? "lbl1" : ""}">${esc(e.s.label || sh(D.teams[IDX.get(e.s.id)].name))} ${Math.round(e.s.vals[n - 1] * 100)}%</text>`).join("");
+  return `<svg class="chart" viewBox="0 0 ${w} ${h}" width="100%" style="max-width:${w}px" role="img" aria-label="Chances by day">
+    ${grid}${mk}${lines}${labels}
+    <text x="${padL}" y="${h - 2}">${esc(apDay(HIST[0].date))}</text><text x="${w - padR}" y="${h - 2}" text-anchor="end">${esc(apDay(HIST[n - 1].date))}</text></svg>`;
 }
 
 function renderHeat() {
@@ -516,7 +580,7 @@ function renderBids() {
     let top = hi;
     while (top > 2 && d[top] < 0.0005) top--;
     const vals = d.slice(0, top + 1), mx = Math.max(...vals) || 1;
-    $("bidAvg").textContent = `${S.view.conf} average: ${avg(d).toFixed(2)} teams`;
+    $("bidAvg").textContent = `${S.view.conf} average: ${avg(d).toFixed(1)} teams`;
     $("bids").hidden = false;
     $("bids").innerHTML = `<div class="bids">${vals.map(v => `<div class="c"><span>${pc(v)}</span>
         <div class="b" style="height:${(v / mx * 96).toFixed(1)}px"></div></div>`).join("")}</div>
@@ -537,27 +601,63 @@ function renderBids() {
 }
 
 // Opening paragraph: the headline numbers in words.
+// One or two sentences on the selected conference's race.
+function renderConfIntro() {
+  const {A, P} = LAST, N = A.N, c = P.confs.findIndex(x => x.name === S.view.conf);
+  if (c < 0 || P.confs[c].format === "none") {
+    $("confIntro").textContent = "Pick a conference at the top of the page to follow its race. Below, every team's chances across all of FBS.";
+    return;
+  }
+  const C = P.confs[c], mem = C.members.slice().sort((a, b) => A.ch[b] - A.ch[a]), nm = i => esc(D.teams[i].name);
+  const top = mem.filter(i => A.ch[i] / N >= 0.05).slice(0, 4);
+  const parts = top.map((i, k) => k ? `${nm(i)} in ${pw(A.ch[i] / N)}` : `${nm(i)} wins the ${esc(C.name)} in ${pw(A.ch[i] / N)} of simulations`);
+  const rest = mem.length - top.length;
+  $("confIntro").innerHTML = `${andList(parts)}.${rest > 0 ? ` The other ${NUMW[rest] || rest} teams win it in ${pw(mem.slice(top.length).reduce((t, i) => t + A.ch[i], 0) / N)} combined.` : ""}`
+    + (C.format === "divisions" ? " The two division winners meet in the title game." : C.format === "top2" ? " The top two teams in the standings meet in the title game." : "");
+}
+
+// The story at the top: a headline and summary line written from the
+// results, then a paragraph with the key numbers.
 function renderSummary() {
   if (!LAST) { $("summary").textContent = ""; return; }
-  const {A, P} = LAST, N = A.N, F = A.F, p = (arr, i) => pc(arr[i] / N), nm = i => `<b>${esc(D.teams[i].name)}</b>`;
+  const {A, P} = LAST, N = A.N, F = A.F, nm = i => `<b>${esc(D.teams[i].name)}</b>`, name = i => esc(D.teams[i].name);
   const top = arr => D.teams.reduce((b, _, i) => arr[i] > arr[b] ? i : b, 0);
   const {byChance} = projectField(A), natl = top(A.natl), one = top(A.seed.filter((_, k) => k % F === 0));
   const last = byChance[F - 1], out = byChance[F];
-  let html = `Across ${N.toLocaleString()} simulated seasons, ${nm(natl)} is the most likely national champion (${p(A.natl, natl)})`
-    + (one === natl ? ` and the most likely No.&nbsp;1 seed (${pc(A.seed[one * F] / N)}).` : `; ${nm(one)} is the most likely No.&nbsp;1 seed (${pc(A.seed[one * F] / N)}).`)
-    + ` The projected last team in is ${nm(last)} (${p(A.cfp, last)}); the first team out is ${nm(out)} (${p(A.cfp, out)}).`;
-  const c = P.confs.findIndex(x => x.name === S.view.conf);
-  if (c >= 0 && P.confs[c].format !== "none") {
-    const mem = P.confs[c].members, ch = mem.reduce((b, i) => A.ch[i] > A.ch[b] ? i : b, mem[0]);
-    const d = Array.from({length: F + 1}, (_, b) => A.bids[c * (F + 1) + b] / N), avg = d.reduce((s, v, b) => s + v * b, 0);
-    const five = d.slice(5).reduce((s, v) => s + v, 0);
-    html += ` In the ${esc(S.view.conf)}, ${nm(ch)} wins the conference ${p(A.ch, ch)} of the time, and the league averages ${avg.toFixed(1)} playoff bids`
-      + (five >= 0.001 ? `, with five or more in ${pc(five)} of seasons.` : ".");
+  const c = P.confs.findIndex(x => x.name === S.view.conf), conf = c >= 0 && P.confs[c].format !== "none" ? P.confs[c] : null;
+  const bubbleOf = idx => idx.filter(i => A.cfp[i] / N >= 0.25 && A.cfp[i] / N <= 0.75).sort((a, b) => A.cfp[b] - A.cfp[a]).slice(0, 2);
+
+  let head, dek;
+  if (conf) {
+    const mem = conf.members.slice().sort((a, b) => A.ch[b] - A.ch[a]), fav = mem[0], p = A.ch[fav] / N, cn = esc(conf.name);
+    head = p >= 0.5 ? `${name(fav)} Is the Clear Favorite in the ${cn}` : p >= 0.3 ? `${name(fav)} Leads a Crowded ${cn} Race` : `The ${cn} Race Is Wide Open`;
+    const bub = bubbleOf(conf.members);
+    if (bub.length) head += `, and ${andList(bub.map(name))} ${bub.length > 1 ? "Are" : "Is"} on the Playoff Bubble`;
+    const d = Array.from({length: F + 1}, (_, b) => A.bids[c * (F + 1) + b] / N), avg = d.reduce((t, v, b) => t + v * b, 0);
+    const mode = d.indexOf(Math.max(...d)), more = d.slice(mode + 1).reduce((t, v) => t + v, 0);
+    dek = `We simulated the rest of the season ${N.toLocaleString()} times. The ${cn} most often sends ${NUMW[mode] || mode} team${mode === 1 ? "" : "s"} to the playoff, and ${NUMW[mode + 1] || mode + 1} or more in ${pw(more)} of simulations.`;
+  } else {
+    const p = A.natl[natl] / N;
+    head = p >= 0.2 ? `${name(natl)} Is the Favorite to Win the National Title` : `No Team Is a Clear Favorite for the National Title`;
+    head += `, and ${name(last)} Is Clinging to the Last Playoff Spot`;
+    dek = `We simulated the rest of the season ${N.toLocaleString()} times to see which 12 teams make the College Football Playoff and how they get there.`;
+  }
+  $("headline").innerHTML = head;
+  $("dek").innerHTML = dek;
+  document.title = `${D.teams[conf ? conf.members.reduce((b, i) => A.ch[i] > A.ch[b] ? i : b, conf.members[0]) : natl].name} and the playoff race: forecast`;
+
+  let html = `${nm(natl)} wins the national title in ${pw(A.natl[natl] / N)} of our simulations, more than any other team`
+    + (one === natl ? `, and it is the most likely No.&nbsp;1 seed.` : `; ${nm(one)} is the most likely No.&nbsp;1 seed.`)
+    + ` The race for the last spots is close: ${nm(last)} makes the field in ${pw(A.cfp[last] / N)} of simulations, and ${nm(out)}, the first team out, in ${pw(A.cfp[out] / N)}.`;
+  if (conf) {
+    const mem = conf.members.slice().sort((a, b) => A.ch[b] - A.ch[a]);
+    html += ` In the ${esc(conf.name)}, ${nm(mem[0])} wins the conference in ${pw(A.ch[mem[0]] / N)} of simulations, followed by ${nm(mem[1])} at ${pw(A.ch[mem[1]] / N)}.`;
   }
   html += moversSentence();
   $("summary").innerHTML = html;
 }
 
+// Biggest moves in published playoff odds over about the last week.
 // Biggest moves in published playoff odds over about the last week.
 function moversSentence() {
   if (!HIST || HIST.length < 2) return "";
@@ -568,10 +668,10 @@ function moversSentence() {
   if (then === last) return "";
   const moves = D.teams.map(t => ({id: t.id, d: (last.cfp[t.id] || 0) - (then.cfp[t.id] || 0)})).filter(m => Math.abs(m.d) >= 0.03);
   const up = moves.filter(m => m.d > 0).sort((a, b) => b.d - a.d).slice(0, 3), down = moves.filter(m => m.d < 0).sort((a, b) => a.d - b.d).slice(0, 3);
-  if (!up.length && !down.length) return ` Published playoff odds have barely moved since ${fmtDay(then.date)}.`;
-  const list = ms => ms.map(m => `<b>${esc(D.teams[IDX.get(m.id)].name)}</b> (${m.d > 0 ? "+" : "−"}${Math.round(Math.abs(m.d) * 100)})`).join(", ");
-  return ` Since ${fmtDay(then.date)}, the biggest risers in published playoff odds are ${up.length ? list(up) : "none"}`
-    + `${down.length ? `; the biggest fallers are ${list(down)}` : ""} (in points).`;
+  if (!up.length && !down.length) return ` The forecast has barely moved since ${apDay(then.date)}.`;
+  const list = ms => ms.map(m => `<b>${esc(D.teams[IDX.get(m.id)].name)}</b> (${m.d > 0 ? "up" : "down"} ${Math.round(Math.abs(m.d) * 100)} points)`).join(", ");
+  return ` Since ${apDay(then.date)}, the biggest gains in playoff chances belong to ${up.length ? list(up) : "no one"}`
+    + `${down.length ? `; the biggest drops, to ${list(down)}` : ""}.`;
 }
 
 // What a remaining game is worth: each side's chance of making the playoff
@@ -593,28 +693,42 @@ function gameStakes(j) {
 const GAME_INDEX = () => new Map(LAST.P.remIds.map((id, j) => [id, j]));
 
 // The selected week's games that move playoff and title odds the most.
+// The selected week's games that move playoff and title chances the most,
+// as cards: each team's chances if it wins and if it loses, with buttons to
+// make the pick.
 function renderBigGames() {
   const el = $("bigGames");
   if (!LAST) { el.innerHTML = ""; return; }
   const conf = S.view.conf, gi = GAME_INDEX();
   const rows = D.games.filter(g => g.hp == null && g.week === S.view.week && (!conf || gConf(g, conf)) && gi.has(g.id))
     .map(g => ({g, st: gameStakes(gi.get(g.id))})).filter(x => x.st && x.st.weight >= 0.02)
-    .sort((a, b) => b.st.weight - a.st.weight).slice(0, 8);
-  if (!rows.length) { el.innerHTML = `<p class="note">No game this week moves playoff or title odds by much${conf ? ` for ${esc(conf)} teams` : ""}.</p>`; return; }
-  const pair = (x, k) => x ? `${Math.round(x[k + "Win"] * 100)}% / ${Math.round(x[k + "Loss"] * 100)}%` : "—";
-  el.innerHTML = `<table><thead><tr><th>Game</th><th class="num">Win chance</th><th class="num">Playoff odds, win / loss</th><th class="num">Conference title, win / loss</th></tr></thead><tbody>
-    ${rows.map(({g, st}) => {
-      const sides = [st.away, st.home];
-      const nm = x => x ? tl(D.teams[x.i].id) : esc(g.awayName || g.homeName);
-      return sides.map((x, k) => `<tr${k === 0 ? ' class="gtop"' : ""}>
-        <td>${k === 0 ? "" : `<span class="muted">${g.neutral ? "vs" : "at"}</span> `}${x ? nm(x) : esc(k === 0 ? g.awayName : g.homeName)}</td>
-        <td class="num">${x ? pc(x.pWin) : ""}</td><td class="num">${pair(x, "cfp")}</td><td class="num">${pair(x, "ch")}</td></tr>`).join("");
-    }).join("")}
-    </tbody></table>`;
+    .sort((a, b) => b.st.weight - a.st.weight).slice(0, 6);
+  if (!rows.length) {
+    const picked = D.games.some(g => g.hp == null && g.week === S.view.week && S.forced[g.id]);
+    el.innerHTML = `<p class="note">${picked ? "Your picks have settled this week's biggest games." : `No game this week changes playoff or title chances by much${conf ? ` for ${esc(conf)} teams` : ""}.`}</p>`;
+    return;
+  }
+  el.innerHTML = `<div class="cards">${rows.map(({g, st}) => {
+    const A = gName(g, "a"), H = gName(g, "h"), aw = st.away, hm = st.home;
+    const fav = hm && aw ? (hm.pWin >= 0.5 ? [H, hm.pWin] : [A, aw.pWin]) : null;
+    // Column 0: if the away team wins; column 1: if the home team wins.
+    const cell = (x, k, awayWins) => x ? pc((x === aw) === awayWins ? x[k + "Win"] : x[k + "Loss"]) : "";
+    const row = (x, nameTxt, k) => x ? `<tr><td>${tl(D.teams[x.i].id, sh(nameTxt))}</td><td class="num">${cell(x, k, true)}</td><td class="num">${cell(x, k, false)}</td></tr>` : "";
+    const sameConf = hm && aw && D.teams[hm.i].conf === D.teams[aw.i].conf;
+    const btn = (v, nameTxt) => `<button data-k="${esc(g.id)}" data-v="${v}">If ${esc(sh(nameTxt))} wins</button>`;
+    return `<div class="card"><div class="title">${esc(A)} ${g.neutral ? "vs." : "at"} ${esc(H)}</div>
+      <div class="sub">${fav ? `${esc(fav[0])} wins ${pw(fav[1])} of the time` : ""}${g.champ ? " · conference championship" : ""}</div>
+      <table><thead><tr><th>Chance to make the playoff</th><th class="num">${btn(1, A)}</th><th class="num">${btn(2, H)}</th></tr></thead>
+      <tbody>${row(aw, A, "cfp")}${row(hm, H, "cfp")}</tbody></table>
+      ${sameConf ? `<table style="margin-top:6px"><thead><tr><th>Chance to win the ${esc(CONF_SHORT[D.teams[hm.i].conf] || D.teams[hm.i].conf)}</th><th></th><th></th></tr></thead>
+      <tbody>${row(aw, A, "ch")}${row(hm, H, "ch")}</tbody></table>` : ""}</div>`;
+  }).join("")}</div>`;
 }
 
 // One team: odds, published odds over time, and every game on the schedule
 // with what the remaining ones are worth.
+// Follow a team: headline numbers, the outlook in words, what it needs,
+// its chances by day, and every game on its schedule.
 function renderTeamPage() {
   if (!LAST) return;
   const {A, P} = LAST, N = A.N;
@@ -623,33 +737,66 @@ function renderTeamPage() {
     S.view.team = D.teams[pool.reduce((b, i) => A.cfp[i] > A.cfp[b] ? i : b, pool[0] ?? 0)].id;
   }
   const i = IDX.get(S.view.team), t = D.teams[i], r = REC[i], none = P.confs[P.confOf[i]].format === "none";
+  const cs = CONF_SHORT[t.conf] || t.conf, pIn = A.cfp[i] / N;
   $("teamSel").innerHTML = [...D.teams].sort((a, b) => a.name.localeCompare(b.name))
     .map(x => `<option value="${esc(x.id)}"${x.id === t.id ? " selected" : ""}>${esc(x.name)}</option>`).join("");
-  const proj = `${(A.sw[i] / N).toFixed(1)}–${(A.sl[i] / N).toFixed(1)}`;
-  let html = `<p class="lede" style="margin-top:6px"><b>${esc(t.name)}</b> (${esc(t.conf)}) is ${r.w}–${r.l}${none ? "" : `, ${r.cw}–${r.cl} in conference`}, with a rating of ${P.R[i].toFixed(1)}.
-    It finishes ${proj} on average and makes the playoff in ${pc(A.cfp[i] / N)} of seasons (a bye in ${pc(A.bye[i] / N)}, hosting a first-round game in ${pc(A.host[i] / N)})`
-    + `${none ? "" : `; it wins the ${esc(t.conf)} in ${pc(A.ch[i] / N)}`} and the national title in ${pc(A.natl[i] / N)}.</p>`;
 
-  if (HIST && HIST.length > 1) html += oddsChart(t.id, none);
+  const fig = (v, label) => `<div class="fig"><div class="fv">${pc(v)}</div><div class="fl">${label}</div></div>`;
+  let html = `<div class="col"><div class="figs">${fig(pIn, "Make the playoff")}${fig(A.bye[i] / N, "Get a first-round bye")}`
+    + `${none ? "" : fig(A.ch[i] / N, `Win the ${esc(cs)}`)}${fig(A.natl[i] / N, "Win the national title")}</div>`;
+  html += `<p class="intro">${esc(t.name)} (${r.w}–${r.l}${none ? "" : `, ${r.cw}–${r.cl} ${esc(cs)}`}) is projected to finish ${Math.round(A.sw[i] / N)}–${Math.round(A.sl[i] / N)}. `
+    + `It makes the playoff in ${pw(pIn)} of our simulations${pIn >= 0.005 ? `, gets a bye in ${pw(A.bye[i] / N)} and hosts a first-round game in ${pw(A.host[i] / N)}` : ""}.`
+    + `${none ? "" : ` It wins the ${esc(t.conf)} in ${pw(A.ch[i] / N)}.`}</p>`;
 
+  // What it needs: remaining games it almost always wins in the simulations
+  // where it makes the playoff, compared with its chance overall.
   const gi = GAME_INDEX(), rows = D.games.filter(g => g.home === t.id || g.away === t.id);
-  html += `<h3>Schedule</h3><div class="scroll"><table><thead><tr><th>Wk</th><th>Opponent</th><th class="num">Result or win chance</th>
-    <th class="num">Playoff odds, win / loss</th>${none ? "" : `<th class="num">${esc(t.conf)} title, win / loss</th>`}</tr></thead><tbody>
+  const needs = [];
+  for (const g of rows) {
+    if (g.hp != null || !gi.has(g.id) || S.forced[g.id]) continue;
+    const j = gi.get(g.id), home = g.home === t.id, b = j * 8, hw = A.levH[j];
+    const winIn = A.cfp[i] ? (home ? A.lev[b] : A.lev[b + 6]) / A.cfp[i] : 0, pWin = (home ? hw : N - hw) / N;
+    needs.push({g, home, winIn, pWin});
+  }
+  if (pIn >= 0.005 && pIn <= 0.995 && needs.length) {
+    const key = needs.filter(x => x.winIn - x.pWin >= 0.05).sort((a, b) => (b.winIn - b.pWin) - (a.winIn - a.pWin)).slice(0, 3);
+    const opp = x => esc(x.home ? gName(x.g, "a") : gName(x.g, "h"));
+    if (key.length) html += `<h3>What ${esc(t.name)} needs</h3><p class="intro">In the simulations where ${esc(t.name)} makes the playoff, it beats `
+      + andList(key.map((x, k) => `${opp(x)} ${Math.round(x.winIn * 100)} percent${k ? "" : " of the time"} (vs. ${Math.round(x.pWin * 100)} percent overall)`))
+      + `. Those are the games that matter most for its playoff hopes.</p>`;
+  } else if (pIn > 0.995) html += `<p class="intro">${esc(t.name)} makes the playoff in virtually every simulation; the question is seeding.</p>`;
+  html += `</div>`;
+
+  if (HIST && HIST.length > 1) {
+    const marks = rows.filter(g => g.hp != null && g.date).map(g => {
+      const home = g.home === t.id, us = home ? g.hp : g.ap, them = home ? g.ap : g.hp, opp = home ? g.away : g.home;
+      const on = opp ? (D.teams[IDX.get(opp)].abbr || sh(D.teams[IDX.get(opp)].name).slice(0, 8)) : "FCS";
+      return {ms: new Date(g.date).getTime(), label: `${us > them ? "W" : "L"} ${on}`};
+    });
+    const series = [{id: t.id, vals: histSeries(t.id, "cfp"), cls: "main", label: "Playoff"}];
+    if (!none) series.push({id: t.id, vals: histSeries(t.id, "ch"), cls: "second", label: `Win ${cs}`});
+    html += `<h3>${esc(t.name)}'s chances by day</h3>` + lineChart(series, {w: 760, h: 220, marks});
+  }
+
+  html += `<h3>Schedule</h3><div class="scroll"><table><thead><tr><th class="num">Wk.</th><th>Opponent</th><th class="num">Result or chance to win</th>
+    <th class="num" title="How often it wins this game in the simulations where it makes the playoff">Wins it in playoff seasons</th>
+    <th class="num">Playoff chance if it wins / loses</th>${none ? "" : `<th class="num">${esc(cs)} title if it wins / loses</th>`}</tr></thead><tbody>
     ${rows.map(g => {
       const home = g.home === t.id, opp = home ? g.away : g.home, oppName = opp ? tl(opp, D.teams[IDX.get(opp)].name) : esc(home ? g.awayName : g.homeName);
-      const where = g.neutral ? "vs" : home ? "" : "at";
-      let res = "", cfp = "", ch = "";
+      const where = g.neutral ? "vs." : home ? "" : "at";
+      let res = "", cfp = "", ch = "", inP = "";
       if (g.hp != null) {
         const us = home ? g.hp : g.ap, them = home ? g.ap : g.hp;
         res = `${us > them ? "W" : "L"} ${us}–${them}`;
       } else if (gi.has(g.id)) {
-        const st = gameStakes(gi.get(g.id)), me = st && (home ? st.home : st.away);
-        const forced = S.forced[g.id];
-        res = forced ? `<span class="forced">${(forced === 2) === home ? "W" : "L"} (what-if)</span>` : me ? pc(me.pWin) : "";
-        if (me) { cfp = `${Math.round(me.cfpWin * 100)}% / ${Math.round(me.cfpLoss * 100)}%`; ch = `${Math.round(me.chWin * 100)}% / ${Math.round(me.chLoss * 100)}%`; }
+        const st = gameStakes(gi.get(g.id)), me = st && (home ? st.home : st.away), forced = S.forced[g.id];
+        const nd = needs.find(x => x.g === g);
+        res = forced ? `<span class="muted">${(forced === 2) === home ? "W" : "L"} (your pick)</span>` : me ? pc(me.pWin) : "";
+        if (nd && pIn >= 0.005) inP = pc(nd.winIn);
+        if (me) { cfp = `${pc(me.cfpWin)} / ${pc(me.cfpLoss)}`; ch = `${pc(me.chWin)} / ${pc(me.chLoss)}`; }
       }
       return `<tr><td class="num">${g.week}</td><td><span class="muted">${where}</span> ${oppName}${g.champ ? ` <span class="muted">(title game)</span>` : ""}</td>
-        <td class="num">${res}</td><td class="num">${cfp}</td>${none ? "" : `<td class="num">${ch}</td>`}</tr>`;
+        <td class="num">${res}</td><td class="num">${inP}</td><td class="num">${cfp}</td>${none ? "" : `<td class="num">${ch}</td>`}</tr>`;
     }).join("")}
     </tbody></table></div>`;
   $("teamView").innerHTML = html;
@@ -657,21 +804,6 @@ function renderTeamPage() {
 
 // Published playoff (and conference title) odds by day for one team, on a
 // fixed 0–100% scale with the lines labeled at their ends.
-function oddsChart(id, noConf) {
-  const w = 520, h = 120, padL = 34, padR = 120, padT = 8, padB = 18, n = HIST.length;
-  const x = k => padL + k * (w - padL - padR) / (n - 1), y = p => padT + (1 - p) * (h - padT - padB);
-  const line = vals => vals.map((v, k) => `${k ? "L" : "M"}${x(k).toFixed(1)},${y(v).toFixed(1)}`).join("");
-  const cfp = histSeries(id, "cfp"), ch = histSeries(id, "ch"), conf = D.teams[IDX.get(id)].conf;
-  const end = (vals, label, cls) => `<text x="${x(n - 1) + 6}" y="${y(vals[n - 1]) + 4}" class="${cls}">${label} ${Math.round(vals[n - 1] * 100)}%</text>`;
-  return `<h3>Published odds by day</h3>
-    <svg class="chart" viewBox="0 0 ${w} ${h}" width="100%" style="max-width:${w}px" role="img" aria-label="Playoff odds by day">
-      <line x1="${padL}" x2="${w - padR}" y1="${y(0)}" y2="${y(0)}" class="axis"/>
-      <text x="${padL - 6}" y="${y(1) + 4}" text-anchor="end" class="lbl">100%</text><text x="${padL - 6}" y="${y(0) + 4}" text-anchor="end" class="lbl">0</text>
-      <text x="${padL}" y="${h - 2}" class="lbl">${esc(fmtDay(HIST[0].date))}</text><text x="${w - padR}" y="${h - 2}" text-anchor="end" class="lbl">${esc(fmtDay(HIST[n - 1].date))}</text>
-      ${noConf ? "" : `<path d="${line(ch)}" class="l2"/>${end(ch, esc(CONF_SHORT[conf] || conf) + " title", "lbl")}`}
-      <path d="${line(cfp)}" class="l1"/>${end(cfp, "Playoff", "lbl1")}
-    </svg>`;
-}
 
 function renderAll() {
   computeRatings();
@@ -729,11 +861,13 @@ function bindStatic() {
   $("clearBtn").onclick = () => { S.forced = {}; save(); renderGames(); run(); };
   $("confSel").onchange = () => { S.view.conf = $("confSel").value; S.view.sort = null; save(); renderTeams(); renderGames(); renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); renderBigGames(); renderTeamPage(); };
   $("weekSel").onchange = () => { S.view.week = +$("weekSel").value; save(); renderGames(); renderBigGames(); };
-  $("teamSel").onchange = () => { S.view.team = $("teamSel").value; save(); renderTeamPage(); };
+  $("teamSel").onchange = () => { S.view.team = $("teamSel").value; save(); renderTeamPage(); renderNatChart(); };
   document.addEventListener("click", e => {
+    const pick = e.target.closest("button[data-k][data-v]");
+    if (pick && D) { togglePick(pick.dataset.k, +pick.dataset.v); return; }
     const a = e.target.closest("a.tl[data-team]");
     if (!a || !D || !IDX.has(a.dataset.team)) return;
-    S.view.team = a.dataset.team; save(); renderTeamPage();
+    S.view.team = a.dataset.team; save(); renderTeamPage(); renderNatChart();
   });
   $("vPlace").onclick = () => { S.view.heat = "place"; save(); renderHeat(); };
   $("vWins").onclick = () => { S.view.heat = "wins"; save(); renderHeat(); };
