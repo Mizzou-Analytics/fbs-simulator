@@ -11,15 +11,18 @@ export const CONF_ORDER = ["SEC", "Big Ten", "ACC", "Big 12", "American Athletic
   "Sun Belt", "Mid-American", "Conference USA", "FBS Independents"];
 export const FORMATS = ["top2", "divisions", "first", "none"];
 
-export const DEF_SETTINGS = {N: 10000, seed: 1, hfa: 2.5, gsd: 13.5, rsd: 3, source: "auto", fcs: -20, priorW: 3, cap: 28};
+// Defaults tuned by the 2024–25 backtest (scripts/backtest.mjs). Bump
+// DEFAULTS_VERSION when they change so saved settings pick up the new ones.
+export const DEFAULTS_VERSION = 2;
+export const DEF_SETTINGS = {N: 10000, seed: 1, hfa: 3, gsd: 14.4, rsd: 5, source: "auto", fcs: -30, priorW: 3, cap: 28};
 // model "sor": committee score = rating + sorW × strength of record.
 // model "losses": rating − lossPen × losses + sosW × average opponent rating.
 // titleLossW: how much a conference title-game loss counts (0 = ignored,
 // 1 = a full loss). h2hWin: committee-score gap within which a team that
 // won the head-to-head game moves ahead. seeding "champs" gives the byes to
 // the top-ranked conference champions (the 2024 rule).
-export const DEF_CFP = {field: 12, byes: 4, autoBids: 5, model: "sor", sorW: 6, lossPen: 6, champBonus: 3, sosW: 0.4, indSD: 3,
-  titleLossW: 0.5, h2hWin: 3, seeding: "straight"};
+export const DEF_CFP = {field: 12, byes: 4, autoBids: 5, model: "sor", sorW: 9, lossPen: 8, champBonus: 6, sosW: 1, indSD: 2.5,
+  titleLossW: 0, h2hWin: 6, seeding: "straight"};
 export const CFP_MODELS = ["sor", "losses"];
 export const SEEDINGS = ["straight", "champs"];
 
@@ -164,7 +167,7 @@ export function validateSeason(raw) {
 }
 
 export function defaultState() {
-  return {settings: {...DEF_SETTINGS}, cfp: {...DEF_CFP}, overrides: {}, forced: {},
+  return {dv: DEFAULTS_VERSION, settings: {...DEF_SETTINGS}, cfp: {...DEF_CFP}, overrides: {}, forced: {},
     view: {conf: "SEC", heat: "place", week: null, sort: null, team: null}};
 }
 
@@ -192,10 +195,15 @@ export function clampRating(v) {
 export function validateState(raw) {
   const s = defaultState();
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return s;
+  // Settings saved under older defaults keep only the run preferences
+  // (simulation count, seed, rating source); the model settings reset to
+  // the current defaults.
+  const current = raw.dv === DEFAULTS_VERSION;
   for (const g of ["settings", "cfp"])
-    if (raw[g] && typeof raw[g] === "object") for (const k in s[g]) if (k in raw[g]) s[g][k] = cleanValue(k, raw[g][k], s[g][k]);
+    if (raw[g] && typeof raw[g] === "object") for (const k in s[g])
+      if (k in raw[g] && (current || ["N", "seed", "source"].includes(k))) s[g][k] = cleanValue(k, raw[g][k], s[g][k]);
   // Older saves had an on/off "don't count title game loss" switch.
-  if (raw.cfp && typeof raw.cfp.forgive === "boolean" && !("titleLossW" in raw.cfp)) s.cfp.titleLossW = raw.cfp.forgive ? 0 : 1;
+  if (current && raw.cfp && typeof raw.cfp.forgive === "boolean" && !("titleLossW" in raw.cfp)) s.cfp.titleLossW = raw.cfp.forgive ? 0 : 1;
   if (raw.overrides && typeof raw.overrides === "object")
     for (const [id, v] of Object.entries(raw.overrides)) if (id.length <= 64 && isNum(v)) s.overrides[id] = clampRating(v);
   if (raw.forced && typeof raw.forced === "object")

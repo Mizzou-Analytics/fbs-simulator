@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {validateSeason, validateState, migrateV1, resultsRatings, prepare, defaultState, resolveSource} from "../js/model.js";
+import {validateSeason, validateState, migrateV1, resultsRatings, prepare, defaultState, resolveSource, DEFAULTS_VERSION} from "../js/model.js";
 import {normTeams, normGames, eloByWeek, normRatings, parseSheet, sheetCsvUrl, buildSeason, serialize, sameData, makeMatcher, parseCsv} from "../scripts/sources.mjs";
 
 const TEAMS = normTeams([
@@ -145,7 +145,7 @@ test("season validation rejects unusable files and skips bad rows", () => {
 });
 
 test("state validation clamps values and drops junk", () => {
-  const s = validateState({settings: {N: 1e9, gsd: -4, hfa: "3", source: "<script>"}, cfp: {field: 12.4, titleLossW: 7, seeding: "bogus"},
+  const s = validateState({dv: DEFAULTS_VERSION, settings: {N: 1e9, gsd: -4, hfa: "3", source: "<script>"}, cfp: {field: 12.4, titleLossW: 7, seeding: "bogus"},
     overrides: {a: 500, b: "x"}, forced: {g1: 2, g2: 3}, view: {conf: 7, heat: "wins", sort: {key: "evil", dir: 1}}});
   assert.equal(s.settings.N, 200000);
   assert.equal(s.settings.gsd, 0);
@@ -154,8 +154,14 @@ test("state validation clamps values and drops junk", () => {
   assert.equal(s.cfp.field, 12);
   assert.equal(s.cfp.titleLossW, 1);
   assert.equal(s.cfp.seeding, "straight");
-  assert.equal(validateState({cfp: {forgive: true}}).cfp.titleLossW, 0);
-  assert.equal(validateState({cfp: {forgive: false}}).cfp.titleLossW, 1);
+  assert.equal(validateState({dv: DEFAULTS_VERSION, cfp: {forgive: false}}).cfp.titleLossW, 1);
+  // Older saves get the current model defaults but keep run preferences.
+  const old = validateState({settings: {N: 50000, hfa: 9, source: "elo"}, cfp: {sorW: 1}, view: {conf: "ACC"}});
+  assert.equal(old.settings.N, 50000);
+  assert.equal(old.settings.source, "elo");
+  assert.equal(old.settings.hfa, defaultState().settings.hfa);
+  assert.equal(old.cfp.sorW, defaultState().cfp.sorW);
+  assert.equal(old.view.conf, "ACC");
   assert.deepEqual(s.overrides, {a: 80});
   assert.deepEqual(s.forced, {g1: 2});
   assert.equal(s.view.conf, "SEC");
