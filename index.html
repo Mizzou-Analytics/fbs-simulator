@@ -6,14 +6,19 @@
 <title>FBS season simulator</title>
 <style>
 /* Plain paper, ink for data, one red for emphasis. */
-:root{
+:root{color-scheme:light;
   --bg:#fffff8;--text:#111;--muted:#6f6f6a;--rule:#d9d9cf;--soft:#f3f3e8;--ink:#111;
   --accent:#a3261c;--good:#2f6b3a;--bad:#a3261c;--warn:#f6efd9;--warnText:#5c4708
 }
-@media (prefers-color-scheme:dark){:root{
+/* Dark: follows the system unless the theme button picked light or dark. */
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark;
   --bg:#151515;--text:#e4e4dc;--muted:#9a9a92;--rule:#34342f;--soft:#1e1e1c;--ink:#e4e4dc;
   --accent:#e2735f;--good:#93c79c;--bad:#e2735f;--warn:#2b2617;--warnText:#e6cf8f
 }}
+:root[data-theme=dark]{color-scheme:dark;
+  --bg:#151515;--text:#e4e4dc;--muted:#9a9a92;--rule:#34342f;--soft:#1e1e1c;--ink:#e4e4dc;
+  --accent:#e2735f;--good:#93c79c;--bad:#e2735f;--warn:#2b2617;--warnText:#e6cf8f
+}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:52px}
 body{margin:0;background:var(--bg);color:var(--text);line-height:1.5;
@@ -140,6 +145,10 @@ td.pb{background:linear-gradient(color-mix(in srgb,var(--ink) 55%,transparent),c
   nav.bar .wrap{gap:12px}
 }
 </style>
+<script>
+// Apply a saved theme before the page draws, so it doesn't flash.
+try { const t = localStorage.getItem("fbsSim.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
 <script type="module" src="js/app.js"></script>
 </head>
 <body>
@@ -155,6 +164,7 @@ td.pb{background:linear-gradient(color-mix(in srgb,var(--ink) 55%,transparent),c
       <button id="exportBtn" title="Download your settings, rating overrides and what-ifs">Export</button>
       <button id="importBtn" title="Load a settings export or a season data file">Import</button>
       <button id="resetBtn">Reset</button>
+      <button id="themeBtn" title="Switch between following your system, light, and dark">Theme: auto</button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
     </div>
   </div>

@@ -568,7 +568,21 @@ function importFile(txt) {
   showMessage("That file isn't a simulator settings export or a season data file.", true);
 }
 
+// Theme button: auto (follow the system) → light → dark.
+const THEME_KEY = "fbsSim.theme", THEMES = ["auto", "light", "dark"];
+function applyTheme(t) {
+  if (t === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = t;
+  $("themeBtn").textContent = `Theme: ${t}`;
+}
+
 function bindStatic() {
+  applyTheme(THEMES.includes(store.get(THEME_KEY)) ? store.get(THEME_KEY) : "auto");
+  $("themeBtn").onclick = () => {
+    const cur = document.documentElement.dataset.theme || "auto", next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length];
+    if (next === "auto") store.del(THEME_KEY); else store.set(THEME_KEY, next);
+    applyTheme(next);
+  };
   $("runBtn").onclick = run;
   $("refreshBtn").onclick = refresh;
   $("clearBtn").onclick = () => { S.forced = {}; save(); renderGames(); run(); };
