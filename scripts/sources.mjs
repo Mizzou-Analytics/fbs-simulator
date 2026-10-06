@@ -151,7 +151,10 @@ export function normRatings(kind, raw, teams) {
     const x = Number(row && row[field]);
     if (id && Number.isFinite(x)) vals[id] = x;
   }
-  return Object.keys(vals).length >= teams.length / 2 ? centerRatings(vals, kind === "elo" ? 1 / 25 : 1) : null;
+  if (Object.keys(vals).length < teams.length / 2) return null;
+  // SP+, FPI and SRS are already points vs. an average team, so keep them
+  // exactly as published. Only Elo needs converting to points.
+  return kind === "elo" ? centerRatings(vals, 1 / 25) : vals;
 }
 
 export function parseCsv(text) {

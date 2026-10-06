@@ -39,13 +39,22 @@ test("CFBD games: v2 camelCase and legacy snake_case both parse", () => {
   assert.equal(games[2].champ, true);
 });
 
-test("CFBD ratings: Elo converted to points and everything centered", () => {
+test("CFBD ratings: Elo converted to points and centered", () => {
   const elo = normRatings("elo", TEAMS.map((t, i) => ({team: t.name, elo: 1500 + i * 50})), TEAMS);
   const vals = Object.values(elo);
   assert.ok(Math.abs(vals.reduce((a, b) => a + b, 0)) < 0.05);
   const gap = TEAMS.findIndex(t => t.id === "145") - TEAMS.findIndex(t => t.id === "333");
   assert.equal(elo["145"] - elo["333"], gap * 50 / 25);
   assert.equal(normRatings("sp", [{team: "Alabama", rating: 20}], TEAMS), null);
+});
+
+test("CFBD SP+, FPI and SRS are stored exactly as published", () => {
+  const rows = TEAMS.map((t, i) => ({team: t.name, rating: 30.1 - i * 3.3, fpi: 12.4 + i}));
+  const sp = normRatings("sp", rows, TEAMS), fpi = normRatings("fpi", rows, TEAMS);
+  TEAMS.forEach((t, i) => {
+    assert.equal(sp[t.id], rows[i].rating);
+    assert.equal(fpi[t.id], rows[i].fpi);
+  });
 });
 
 test("team-name matching handles common variants", () => {
