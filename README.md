@@ -24,7 +24,7 @@ Until `data/season.json` exists, the page falls back to `data/demo.json`. That f
 
 ## Data updates
 
-`scripts/update-data.mjs` pulls everything from **[CollegeFootballData.com](https://collegefootballdata.com)** (CFBD): FBS teams, conferences, divisions, the full regular-season schedule, final scores, and the SP+, FPI, Elo and SRS ratings. **SP+ is the default rating source**; the others can be picked in the page.
+`scripts/update-data.mjs` pulls everything from **[CollegeFootballData.com](https://collegefootballdata.com)** (CFBD): FBS teams, conferences, divisions, the full regular-season schedule, final scores, and the SP+, FPI, Elo and SRS ratings. **SP+ is the default rating source**; the others can be picked in the page. SP+, FPI and SRS are stored exactly as CFBD publishes them; Elo is converted to points (25 Elo points per point) and centered on the FBS average.
 
 Each run writes `data/season.json`, including a weekly history of ratings that the page uses to show each team's change since last week:
 
