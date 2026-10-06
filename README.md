@@ -133,6 +133,28 @@ The top *auto bids* conference champions by score get in. The highest remaining 
 
 Run it from the Actions tab (**Backtest**, choose the seasons) or locally with `CFBD_API_KEY=... node scripts/backtest.mjs --years 2024,2025`. The report is in the job summary.
 
+**Results (October 2026).** The current defaults come from backtesting 2024 and 2025. Scores are log loss, so lower is better:
+
+- *Playoff field*: summed over all FBS teams.
+- *Conference champion*: averaged per conference.
+
+| Season, as of | Playoff field: old → new | Byes: old → new | Conference champion: old → new |
+| --- | --- | --- | --- |
+| 2024, week 6 | 18.7 → 17.9 | 11.3 → 10.0 | 0.82 → 0.79 |
+| 2024, week 10 | 15.3 → 15.1 | 12.0 → 10.6 | 0.77 → 0.75 |
+| 2024, selection day | 4.9 → 4.5 | 1.7 → 1.5 | — |
+| 2025, week 6 | 15.9 → 14.8 | 9.2 → 8.0 | 0.77 → 0.75 |
+| 2025, week 10 | 14.1 → 13.0 | 7.2 → 6.2 | 0.65 → 0.65 |
+| 2025, selection day | 8.1 → 6.0 | 3.4 → 3.0 | — |
+
+What changed:
+
+- **Bigger rating uncertainty** (rating noise SD 3 → 5): early-season forecasts were overconfident.
+- **A slightly larger home field** (2.5 → 3).
+- **A committee that leans harder on strength of record and conference titles**, forgives title-game losses, and respects head-to-head between close teams.
+
+First-round hosting and title forecasts barely moved. Two seasons are a small sample: the search kept preferring ever more extreme committee settings, which is a sign of fitting a few specific committee decisions. So the defaults are moderate values from the improving direction rather than the search's best point. Rerun the backtest as more seasons finish.
+
 ## Files
 
 | Path | What it is |
