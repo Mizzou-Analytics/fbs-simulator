@@ -82,6 +82,9 @@ export function eloByWeek(raw, teams) {
       if (v !== undefined) last.set(id, v);
     }
   }
+  // One more entry after the last week: everyone's latest postgame Elo.
+  const weeks = [...byWeek.keys()];
+  if (weeks.length && last.size >= teams.length / 2) out[Math.max(...weeks) + 1] = centerRatings(Object.fromEntries(last), 1 / 25);
   return out;
 }
 
@@ -258,7 +261,9 @@ export function buildSeason({year, teams, games, ratings = {}, eloWeeks = null, 
   const confNames = [...new Set(teams.map(t => t.conf))].sort((a, b) => confRank(a) - confRank(b) || a.localeCompare(b));
   const conferences = confNames.map(name => {
     const divs = new Set(teams.filter(t => t.conf === name && t.div).map(t => t.div));
-    return {name, format: INDEPENDENT.test(name) ? "none" : divs.size >= 2 ? "divisions" : "top2", hosted: HOSTED_TITLE.has(name)};
+    // Fewer than four teams (the 2024 Pac-12) means no title game or standings.
+    const small = teams.filter(t => t.conf === name).length < 4;
+    return {name, format: INDEPENDENT.test(name) || small ? "none" : divs.size >= 2 ? "divisions" : "top2", hosted: HOSTED_TITLE.has(name)};
   });
   const currentWeek = computeWeek(games);
   const cur = {...(keepPrev ? prev.ratings : {})};

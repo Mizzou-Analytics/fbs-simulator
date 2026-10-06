@@ -1,0 +1,28 @@
+name: Backtest
+
+# Re-runs past seasons against the model and reports how well it would have
+# forecast them. Run it by hand from the Actions tab; it also runs when the
+# backtest or model code changes on a branch.
+on:
+  workflow_dispatch:
+    inputs:
+      years:
+        description: "Seasons to test, comma-separated"
+        default: "2024,2025"
+  push:
+    branches-ignore: [main]
+    paths: ["scripts/backtest*.mjs", "js/sim.js", "js/model.js"]
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Backtest
+        env:
+          CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
+        run: node scripts/backtest.mjs --years "${{ inputs.years || '2024,2025' }}"

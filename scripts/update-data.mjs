@@ -13,6 +13,7 @@ import {readFile, writeFile} from "node:fs/promises";
 import {fileURLToPath} from "node:url";
 import path from "node:path";
 import {validateSeason} from "../js/model.js";
+import {fetchRetry, cfbdClient} from "./net.mjs";
 import {normTeams, normGames, eloByWeek, normRatings, parseSheet, sheetCsvUrl, buildSeason, seasonYear, serialize, sameData} from "./sources.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -21,31 +22,12 @@ const args = process.argv.slice(2);
 const scoresOnly = args.includes("--scores-only");
 const yi = args.indexOf("--year");
 const year = yi >= 0 ? Number(args[yi + 1]) : seasonYear(new Date());
-const KEY = process.env.CFBD_API_KEY;
-const BASE = (process.env.CFBD_BASE_URL || "https://api.collegefootballdata.com").replace(/\/$/, "");
-
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-async function fetchRetry(url, init, what) {
-  for (let attempt = 1; ; attempt++) {
-    let res;
-    try { res = await fetch(url, init); } catch (e) { res = null; if (attempt >= 4) throw new Error(`${what}: ${e.message}`); }
-    if (res && res.ok) return res;
-    if (res && (res.status === 401 || res.status === 403)) throw new Error(`${what}: access denied (HTTP ${res.status})`);
-    if (res && res.status < 500 && res.status !== 429) throw new Error(`${what}: HTTP ${res.status}`);
-    if (attempt >= 4) throw new Error(`${what}: HTTP ${res ? res.status : "error"} after ${attempt} tries`);
-    await sleep(2000 * 2 ** (attempt - 1));
-  }
-}
-
-const cfbd = async p => (await fetchRetry(BASE + p, {headers: {Authorization: `Bearer ${KEY}`, Accept: "application/json"}}, `CFBD ${p}`)).json();
-
 async function readJson(file) {
   try { return JSON.parse(await readFile(file, "utf8")); } catch { return null; }
 }
 
 async function main() {
-  if (!KEY) throw new Error("Set CFBD_API_KEY (free key from https://collegefootballdata.com/key).");
+  const cfbd = cfbdClient();
   if (!Number.isInteger(year)) throw new Error("--year must be a number");
   const cfg = (await readJson(path.join(root, "data", "sources.json"))) || {};
   const prev = await readJson(OUT);

@@ -115,8 +115,10 @@ test("buildSeason keeps history, formats conferences, and round-trips through va
   const s1 = buildSeason({year: 2026, teams: TEAMS, games, ratings: {sp: r}, sheetWeeks: {0: r, 1: r}, prev: null, now: "t1"});
   assert.equal(s1.currentWeek, 2);
   assert.deepEqual(s1.history.map(h => h.week), [0, 1, 2]);
-  assert.equal(s1.conferences.find(c => c.name === "Sun Belt").format, "divisions");
+  assert.equal(s1.conferences.find(c => c.name === "Sun Belt").format, "none", "three teams: no title game");
   assert.equal(s1.conferences.find(c => c.name === "Sun Belt").hosted, true);
+  const four = [...TEAMS, {id: "x", name: "Troy", abbr: "", conf: "Sun Belt", div: "West"}];
+  assert.equal(buildSeason({year: 2026, teams: four, games, prev: null, now: "t"}).conferences.find(c => c.name === "Sun Belt").format, "divisions");
   assert.equal(s1.conferences.find(c => c.name === "FBS Independents").format, "none");
   assert.equal(s1.conferences[0].name, "SEC");
   const s2 = buildSeason({year: 2026, teams: TEAMS, games, ratings: {}, prev: JSON.parse(serialize(s1)), now: "t2"});
@@ -143,14 +145,17 @@ test("season validation rejects unusable files and skips bad rows", () => {
 });
 
 test("state validation clamps values and drops junk", () => {
-  const s = validateState({settings: {N: 1e9, gsd: -4, hfa: "3", source: "<script>"}, cfp: {field: 12.4, forgive: "yes"},
+  const s = validateState({settings: {N: 1e9, gsd: -4, hfa: "3", source: "<script>"}, cfp: {field: 12.4, titleLossW: 7, seeding: "bogus"},
     overrides: {a: 500, b: "x"}, forced: {g1: 2, g2: 3}, view: {conf: 7, heat: "wins", sort: {key: "evil", dir: 1}}});
   assert.equal(s.settings.N, 200000);
   assert.equal(s.settings.gsd, 0);
   assert.equal(s.settings.hfa, 3);
   assert.equal(s.settings.source, "auto");
   assert.equal(s.cfp.field, 12);
-  assert.equal(s.cfp.forgive, true);
+  assert.equal(s.cfp.titleLossW, 1);
+  assert.equal(s.cfp.seeding, "straight");
+  assert.equal(validateState({cfp: {forgive: true}}).cfp.titleLossW, 0);
+  assert.equal(validateState({cfp: {forgive: false}}).cfp.titleLossW, 1);
   assert.deepEqual(s.overrides, {a: 80});
   assert.deepEqual(s.forced, {g1: 2});
   assert.equal(s.view.conf, "SEC");
@@ -180,7 +185,7 @@ test("weekly Elo history comes from pregame Elo, carrying postgame Elo through b
   }
   games.push({id: 99, week: 2, season_type: "regular", home_id: ids[0], away_id: ids[1], home_pregame_elo: 1650, away_pregame_elo: 1350});
   const h = eloByWeek(games, TEAMS);
-  assert.deepEqual(Object.keys(h).map(Number), [1, 2]);
+  assert.deepEqual(Object.keys(h).map(Number), [1, 2, 3], "weeks 1 and 2 plus final values after week 2");
   assert.ok(Math.abs(h[1][String(ids[1])] - h[1][String(ids[0])] - 10 / 25) < 0.011);
   // Week 2: team 0 uses its new pregame Elo; team 2 (bye) carries its postgame 1600.
   assert.ok(Math.abs(h[2][String(ids[0])] - h[2][String(ids[2])] - 50 / 25) < 0.011);

@@ -181,7 +181,7 @@ function bindSettings() {
       el.value = S[g][k];
     }
     const apply = () => {
-      S[g][k] = el.tagName === "SELECT" && (k === "source" || k === "model") ? el.value : cleanSetting(g, k, el.value);
+      S[g][k] = el.tagName === "SELECT" && (k === "source" || k === "model" || k === "seeding") ? el.value : cleanSetting(g, k, el.value);
       save();
       if (k === "model") showModel();
       if (g === "cfp") $("cfpErr").textContent = bracketError(S.cfp) || "";
@@ -198,7 +198,7 @@ function bindSettings() {
 function showModel() {
   const m = S.cfp.model;
   document.querySelectorAll("[data-model]").forEach(el => { el.hidden = el.dataset.model !== m; });
-  const tail = " The highest-scoring conference champions get the automatic bids, and the rest of the field goes to the highest remaining scores. Seeding follows the score order, and the top seeds get byes. The bracket is then played out, with first-round games at the higher seed and later rounds at neutral sites.";
+  const tail = " A lost conference title game counts as a fraction of a loss (the title-game loss weight: 0 ignores it, 1 counts it fully). If a team finishes within the head-to-head window of a team it beat, it moves just ahead of that team. The highest-scoring conference champions get the automatic bids, and the rest of the field goes to the highest remaining scores. Seeding follows the score order and the top seeds get byes (under the 2024 rule, byes went to the four highest-ranked conference champions). The bracket is then played out, with first-round games at the higher seed and later rounds at neutral sites.";
   $("cfpExplain").textContent = (m === "sor"
     ? "In every simulated season, each FBS team gets a committee score: rating + SOR weight × strength of record + champion bonus (conference champions) + noise. Strength of record is wins minus the wins a bubble team (the field-size-th best rating) would expect against the same schedule at the same sites, so a loss to a top team costs much less than a loss to a weak one."
     : "In every simulated season, each FBS team gets a committee score: rating − loss penalty × losses + SoS weight × average opponent rating + champion bonus (conference champions) + noise. Every loss costs the same, whoever it's against.") + tail;

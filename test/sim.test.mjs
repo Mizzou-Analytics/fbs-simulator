@@ -123,3 +123,51 @@ test("seed, host, auto-bid and round counts add up every season", () => {
     }
   }
 });
+
+test("Big 12-style total-wins and committee-rank tiebreak steps", () => {
+  // Teams 0 and 1 split 1-1 against each other with no common opponents.
+  const n = 2, G2 = Uint8Array.from([0, 2, 2, 0]), wins = Int16Array.from([0, 1, 1, 0]);
+  const CW = Int16Array.from([1, 1]), CL = Int16Array.from([1, 1]), confOpps = [Int16Array.from([1]), Int16Array.from([0])];
+  const W = Int16Array.from([9, 10]), rankScore = Float64Array.from([5, 1]), r = Float64Array.from([3, 2]);
+  const rank = makeRanker({n, G2, wins, CW, CL, confOpps, r, W, rankScore});
+  assert.deepEqual(rank([0, 1], [0, 1], ["h2h", "totalWins"]), [1, 0]);
+  assert.deepEqual(rank([0, 1], [0, 1], ["h2h", "rank"]), [0, 1]);
+  assert.deepEqual(rank([0, 1], [0, 1], ["h2h"]), [0, 1], "falls back to the ratings metric");
+});
+
+const tiny = (h2hWin) => {
+  // B beat A; A is rated 3 points higher. With a 2-team field the top seed
+  // shows who the committee ranked first.
+  const {season} = validateSeason({teams: [{id: "a", name: "A"}, {id: "b", name: "B"}, {id: "c", name: "C"}],
+    games: [{id: "1", week: 1, home: "a", away: "b", neutral: true, hp: 10, ap: 20}], ratings: {sp: {a: 20, b: 17, c: 0}}});
+  const st = defaultState();
+  Object.assign(st.settings, {N: 200, rsd: 0});
+  Object.assign(st.cfp, {field: 2, byes: 0, autoBids: 0, sorW: 0, indSD: 0, champBonus: 0, h2hWin});
+  const P = prepare(season, st), A = simulate(P, true);
+  return {A, b: season.teams.findIndex(t => t.id === "b"), F: A.F};
+};
+
+test("committee moves a head-to-head winner ahead only within the window", () => {
+  const off = tiny(0), on = tiny(5);
+  assert.equal(off.A.seed[off.b * off.F], 0, "without the rule the higher-rated loser is seeded first");
+  assert.equal(on.A.seed[on.b * on.F], on.A.N, "within 5 points the winner moves ahead");
+});
+
+test("2024 bye rule gives byes only to conference champions", () => {
+  const st = defaultState(); st.cfp.seeding = "champs";
+  const P = small(st), A = simulate(P, true);
+  for (let i = 0; i < P.n; i++) if (!A.ch[i]) assert.equal(A.bye[i], 0, `team ${i} never won its conference`);
+  assert.equal(A.bye.reduce((s, v) => s + v, 0) / A.N, 4);
+});
+
+test("per-game swing counts add up to each side's overall totals", () => {
+  const P = small(), A = simulate(P, true);
+  P.rem.forEach((g, j) => {
+    assert.ok(A.levH[j] >= 0 && A.levH[j] <= A.N);
+    if (g.h >= 0) {
+      assert.equal(A.lev[j * 8] + A.lev[j * 8 + 2], A.cfp[g.h]);
+      assert.equal(A.lev[j * 8 + 1] + A.lev[j * 8 + 3], A.ch[g.h]);
+    }
+    if (g.a >= 0) assert.equal(A.lev[j * 8 + 4] + A.lev[j * 8 + 6], A.cfp[g.a]);
+  });
+});

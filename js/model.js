@@ -14,15 +14,42 @@ export const FORMATS = ["top2", "divisions", "first", "none"];
 export const DEF_SETTINGS = {N: 10000, seed: 1, hfa: 2.5, gsd: 13.5, rsd: 3, source: "auto", fcs: -20, priorW: 3, cap: 28};
 // model "sor": committee score = rating + sorW × strength of record.
 // model "losses": rating − lossPen × losses + sosW × average opponent rating.
-export const DEF_CFP = {field: 12, byes: 4, autoBids: 5, model: "sor", sorW: 6, lossPen: 6, champBonus: 3, sosW: 0.4, indSD: 3, forgive: true};
+// titleLossW: how much a conference title-game loss counts (0 = ignored,
+// 1 = a full loss). h2hWin: committee-score gap within which a team that
+// won the head-to-head game moves ahead. seeding "champs" gives the byes to
+// the top-ranked conference champions (the 2024 rule).
+export const DEF_CFP = {field: 12, byes: 4, autoBids: 5, model: "sor", sorW: 6, lossPen: 6, champBonus: 3, sosW: 0.4, indSD: 3,
+  titleLossW: 0.5, h2hWin: 3, seeding: "straight"};
 export const CFP_MODELS = ["sor", "losses"];
+export const SEEDINGS = ["straight", "champs"];
+
+// Conference tiebreaker steps, in order (see makeRanker in sim.js). These
+// follow each conference's published procedure as best we know it; the
+// computer-ranking steps conferences use are approximated by "metric", and
+// CFP-ranking steps by "rank". A season file can override any conference
+// with a "tiebreak" list.
+export const TIEBREAK_STEPS = ["h2h", "common", "tiers", "oppStrength", "totalWins", "rank", "metric"];
+export const DEFAULT_TIEBREAK = ["h2h", "common", "tiers", "oppStrength", "metric"];
+export const CONF_TIEBREAKS = {
+  "SEC": DEFAULT_TIEBREAK,
+  "Big Ten": DEFAULT_TIEBREAK,
+  "ACC": DEFAULT_TIEBREAK,
+  "Big 12": ["h2h", "common", "tiers", "oppStrength", "totalWins", "metric"],
+  "Sun Belt": ["h2h", "common", "tiers", "rank", "metric"],
+  "American Athletic": ["h2h", "common", "rank", "metric"],
+  "Mountain West": ["h2h", "common", "rank", "metric"],
+  "Pac-12": ["h2h", "common", "rank", "metric"],
+  "Mid-American": ["h2h", "common", "rank", "metric"],
+  "Conference USA": ["h2h", "common", "rank", "metric"]
+};
 export const SORT_KEYS = ["name", "conf", "rating", "rec", "proj", "projc", "t2", "ch", "cfp", "bye", "natl"];
 
 // [min, max, integer?]
 const LIMITS = {
   N: [100, 200000, true], seed: [0, 2147483647, true], hfa: [-10, 15], gsd: [0, 40], rsd: [0, 20], fcs: [-60, 30],
   priorW: [0.5, 50], cap: [1, 100], field: [2, 32, true], byes: [0, 31, true], autoBids: [0, 32, true],
-  lossPen: [0, 40], sorW: [0, 30], champBonus: [-20, 40], sosW: [-5, 5], indSD: [0, 30]
+  lossPen: [0, 40], sorW: [0, 30], champBonus: [-20, 40], sosW: [-5, 5], indSD: [0, 30],
+  titleLossW: [0, 1], h2hWin: [0, 30]
 };
 const RATING_MAX = 80;
 
@@ -112,7 +139,9 @@ export function validateSeason(raw) {
       const c = given.get(name) || {}, divs = new Set(teams.filter(t => t.conf === name && t.div).map(t => t.div));
       let format = FORMATS.includes(c.format) ? c.format : /independent/i.test(name) ? "none" : divs.size >= 2 ? "divisions" : "top2";
       if (format === "divisions" && divs.size < 2) format = "top2";
-      return {name, format, hosted: !!c.hosted};
+      const conf = {name, format, hosted: !!c.hosted};
+      if (Array.isArray(c.tiebreak) && c.tiebreak.length && c.tiebreak.every(x => TIEBREAK_STEPS.includes(x))) conf.tiebreak = c.tiebreak.slice(0, 10);
+      return conf;
     });
 
   const ratings = cleanRatings(raw.ratings, ids);
@@ -142,6 +171,7 @@ export function defaultState() {
 function cleanValue(k, v, def) {
   if (typeof def === "boolean") return typeof v === "boolean" ? v : def;
   if (k === "model") return CFP_MODELS.includes(v) ? v : def;
+  if (k === "seeding") return SEEDINGS.includes(v) ? v : def;
   if (k === "source") return typeof v === "string" && (v === "auto" || SOURCE_RE.test(v)) ? v : def;
   const n = typeof v === "string" && !v.trim() ? NaN : Number(v);
   if (!Number.isFinite(n)) return def;
@@ -164,6 +194,8 @@ export function validateState(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return s;
   for (const g of ["settings", "cfp"])
     if (raw[g] && typeof raw[g] === "object") for (const k in s[g]) if (k in raw[g]) s[g][k] = cleanValue(k, raw[g][k], s[g][k]);
+  // Older saves had an on/off "don't count title game loss" switch.
+  if (raw.cfp && typeof raw.cfp.forgive === "boolean" && !("titleLossW" in raw.cfp)) s.cfp.titleLossW = raw.cfp.forgive ? 0 : 1;
   if (raw.overrides && typeof raw.overrides === "object")
     for (const [id, v] of Object.entries(raw.overrides)) if (id.length <= 64 && isNum(v)) s.overrides[id] = clampRating(v);
   if (raw.forced && typeof raw.forced === "object")
@@ -182,7 +214,8 @@ export function validateState(raw) {
 export function migrateV1(raw) {
   const s = defaultState();
   for (const k of ["N", "hfa", "gsd", "rsd"]) if (raw.settings && k in raw.settings) s.settings[k] = cleanValue(k, raw.settings[k], s.settings[k]);
-  for (const k of ["lossPen", "champBonus", "indSD", "forgive"]) if (raw.cfp && k in raw.cfp) s.cfp[k] = cleanValue(k, raw.cfp[k], s.cfp[k]);
+  for (const k of ["lossPen", "champBonus", "indSD"]) if (raw.cfp && k in raw.cfp) s.cfp[k] = cleanValue(k, raw.cfp[k], s.cfp[k]);
+  if (raw.cfp && typeof raw.cfp.forgive === "boolean") s.cfp.titleLossW = raw.cfp.forgive ? 0 : 1;
   return s;
 }
 
@@ -292,7 +325,8 @@ export function effectiveRatings(season, state) {
 export function prepare(season, state, eff = effectiveRatings(season, state)) {
   const {settings: S, cfp: C} = state, teams = season.teams, n = teams.length, idx = teamIndex(season);
   const R = Float64Array.from(teams, t => eff[t.id]);
-  const confs = season.conferences.map(c => ({name: c.name, format: c.format, hosted: c.hosted, members: [], divs: null, champGame: -1, champDone: null}));
+  const confs = season.conferences.map(c => ({name: c.name, format: c.format, hosted: c.hosted, members: [], divs: null, champGame: -1, champDone: null,
+    tiebreak: c.tiebreak || CONF_TIEBREAKS[c.name] || DEFAULT_TIEBREAK}));
   const ci = new Map(confs.map((c, k) => [c.name, k])), confOf = new Int16Array(n);
   teams.forEach((t, i) => { confOf[i] = ci.get(t.conf); confs[confOf[i]].members.push(i); });
   for (const c of confs) {
@@ -304,7 +338,7 @@ export function prepare(season, state, eff = effectiveRatings(season, state)) {
 
   const W0 = new Int16Array(n), L0 = new Int16Array(n), CW0 = new Int16Array(n), CL0 = new Int16Array(n);
   const wins0 = new Int16Array(n * n), G2 = new Uint8Array(n * n), confG = new Int16Array(n);
-  const oppSum = new Float64Array(n), oppCnt = new Int16Array(n), rem = [], remIds = [];
+  const oppSum = new Float64Array(n), oppCnt = new Int16Array(n), rem = [], remIds = [], playedW = [], playedL = [];
   for (const g of season.games) {
     const h = g.home == null ? -1 : idx.get(g.home), a = g.away == null ? -1 : idx.get(g.away);
     const same = h >= 0 && a >= 0 && confOf[h] === confOf[a] && confs[confOf[h]].format !== "none";
@@ -316,6 +350,7 @@ export function prepare(season, state, eff = effectiveRatings(season, state)) {
       const w = g.hp > g.ap ? h : a, l = g.hp > g.ap ? a : h;
       if (w >= 0) W0[w]++;
       if (l >= 0) L0[l]++;
+      if (w >= 0 && l >= 0) { playedW.push(w); playedL.push(l); }
       if (champ) confs[confOf[h]].champDone = {w, l, home: g.neutral ? -1 : h};
       else if (conf) { CW0[w]++; CL0[l]++; wins0[w * n + l]++; }
     } else {
@@ -350,5 +385,6 @@ export function prepare(season, state, eff = effectiveRatings(season, state)) {
     for (const i of c.members) maxConfG = Math.max(maxConfG, confG[i]);
   }
   return {n, confs, confOf, R, W0, L0, CW0, CL0, wins0, G2, confG, confOpps, sos, expW, rem, remIds, forced, maxConfSize, maxConfG,
+    playedW: Int16Array.from(playedW), playedL: Int16Array.from(playedL),
     params: {N: S.N, seed: S.seed, hfa: S.hfa, gsd: S.gsd, rsd: S.rsd, fcs: S.fcs, bench, ...C}};
 }
