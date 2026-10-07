@@ -141,7 +141,7 @@ a.tl:hover{text-decoration:underline}
 .grid2{display:grid;grid-template-columns:1fr;gap:6px}
 .grid2>div{min-width:0}
 
-/* Pick the winners */
+/* Pick a team's games */
 .picks{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:8px 28px}
 .pick{display:grid;grid-template-columns:1fr auto 1fr;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid var(--rule)}
 .pick .at{font-size:11px;color:var(--faint);text-align:center;min-width:16px}
@@ -151,14 +151,17 @@ a.tl:hover{text-decoration:underline}
 .pick button.off{opacity:.45}
 .pick .tag{grid-column:1/-1;font-size:11px;color:var(--faint)}
 
-/* Game cards */
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:22px 28px}
-.card{border-top:2px solid var(--text);padding-top:8px}
-.card .title{font-weight:700;font-size:15px}
-.card .sub{font-size:12px;color:var(--muted);margin:2px 0 8px}
-.card table{font-size:13px}
-.card th button{height:auto;padding:4px 8px;font-size:11px;text-transform:none;letter-spacing:0;white-space:nowrap}
-.card td{padding:4px 6px}
+/* Seed histogram */
+.sh{display:grid;gap:0 4px;max-width:620px;margin-top:8px}
+.sh .c{position:relative;height:120px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;border-bottom:1px solid var(--text)}
+.sh .v{position:absolute;left:0;right:0;text-align:center;font-size:11px;color:var(--muted);white-space:nowrap}
+.sh .b{width:70%;max-width:30px;background:var(--ink)}
+.sh .c.top .b{background:var(--accent)}
+.sh .c.top .v{color:var(--accent);font-weight:700}
+.sh .base{position:absolute;left:8%;right:8%;border-top:2px solid var(--muted)}
+.sh .n{text-align:center;font-size:12px;font-weight:600;color:var(--muted);padding-top:3px}
+.sh .g{font-size:11px;color:var(--muted);border-top:1px solid var(--rule);margin-top:6px;padding-top:3px;text-align:center;line-height:1.25}
+@media (max-width:560px){.sh{gap:0 2px}.sh .v{font-size:9px}.sh .n{font-size:11px}}
 
 /* Charts */
 svg.chart{display:block;overflow:visible}
@@ -262,7 +265,7 @@ try { const t = localStorage.getItem("fbsSim.theme"); if (t === "light" || t ===
     <a href="#bigweek">Biggest games</a>
     <a href="#teamSec">Follow a team</a>
     <a href="#playoff">Playoff field</a>
-    <a href="#whatif">Pick the winners</a>
+    <a href="#whatif">Pick its games</a>
     <a href="#conference">Conference races</a>
     <a href="#method">How this works</a>
     <span class="sp"></span>
@@ -306,6 +309,17 @@ try { const t = localStorage.getItem("fbsSim.theme"); if (t === "light" || t ===
     <div id="teamView"><p class="col note">The outlook for any team appears here once the simulations finish. Team names anywhere on the page open it.</p></div>
   </section>
 
+  <section id="whatif">
+    <div class="col">
+      <h2 id="pkHead">Pick the rest of the schedule</h2>
+      <p class="intro">Choose the winner of any remaining game for the team above and the forecast reruns. Click a pick again to undo it. Picks stay in place when you switch teams, and their effect shows in green and red throughout the page.</p>
+      <div class="row" style="align-items:center">
+        <button id="winOutBtn">Win out</button><button id="clearBtn">Reset all picks</button><span class="muted" id="fc"></span>
+      </div>
+    </div>
+    <div class="picks" id="games"></div>
+  </section>
+
   <section id="playoff">
     <div class="col">
       <h2>The projected playoff field</h2>
@@ -317,22 +331,6 @@ try { const t = localStorage.getItem("fbsSim.theme"); if (t === "light" || t ===
     <h3>Every contender's chances</h3>
     <p class="note">Teams with at least a 1 percent chance to make the playoff. SOR (strength of record) is projected wins above what a bubble team would win against the same schedule. The chance of each exact seed is below the table.</p>
     <div class="scroll" id="natTable"></div>
-  </section>
-
-  <section id="whatif">
-    <div class="col">
-      <h2>Pick the winners</h2>
-      <p class="intro">Choose the winner of any game and the forecast reruns with your picks. Click a pick again to undo it. Picks in other weeks stay in place; changes from your picks appear in green and red throughout the page.</p>
-      <div class="row" style="align-items:center">
-        <label for="weekSel" style="margin:0">Week</label><select id="weekSel"></select>
-        <span class="muted" id="fc"></span><button id="clearBtn">Reset picks</button>
-      </div>
-    </div>
-    <h3>The games that matter most</h3>
-    <p class="note">The games with the biggest effect on the two teams' playoff and conference-title chances.</p>
-    <div id="bigGames"></div>
-    <h3>All games this week</h3>
-    <div class="picks" id="games"></div>
   </section>
 
   <section id="conference">
