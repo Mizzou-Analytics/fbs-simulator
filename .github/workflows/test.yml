@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    paths-ignore: ["data/season.json", "data/odds-history.json"]
+    paths-ignore: ["data/season.json", "data/odds-history.json", "data/stakes.json"]
   pull_request:
 
 jobs:

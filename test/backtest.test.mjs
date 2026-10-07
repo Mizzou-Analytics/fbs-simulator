@@ -59,3 +59,22 @@ test("odds snapshots are compact and one per day", () => {
   assert.equal(addSnapshot(h, snap, 2027).snapshots.length, 1, "a new season starts over");
   assert.deepEqual(JSON.parse(serializeHistory(h)), h);
 });
+
+test("national stakes: ranked by weight, values in range, forced runs match", async () => {
+  const {weekStakes} = await import("../scripts/stakes.mjs");
+  const {defaultState, prepare} = await import("../js/model.js");
+  const {simulate} = await import("../js/sim.js");
+  const out = weekStakes(demo, {N: 300, top: 5, date: "2026-10-07"});
+  assert.equal(out.week, demo.currentWeek);
+  assert.equal(out.games.length, 5);
+  for (let k = 1; k < out.games.length; k++) assert.ok(out.games[k - 1].weight >= out.games[k].weight);
+  for (const g of out.games) {
+    assert.ok(g.weight <= g.stake + 1e-9, "weight never exceeds stake");
+    for (const s of [g.home, g.away].filter(Boolean)) assert.ok(s.pWin >= 0 && s.pWin <= 1 && s.ifWin >= 0 && s.ifLose <= 1);
+  }
+  // The home side's "if it wins" chance equals a direct run with that game forced.
+  const g = out.games[0], st = defaultState();
+  st.settings.N = 300; st.forced = {[g.id]: 2};
+  const P = prepare(demo, st), A = simulate(P, true), i = demo.teams.findIndex(t => t.id === g.home.id);
+  assert.ok(Math.abs(A.cfp[i] / 300 - g.home.ifWin) < 0.001);
+});
