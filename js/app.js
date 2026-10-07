@@ -8,7 +8,8 @@ const SHORT = {"Mississippi State": "Miss. State", "South Carolina": "S. Carolin
   "Western Kentucky": "W. Kentucky", "Western Michigan": "W. Michigan", "Central Michigan": "C. Michigan",
   "Eastern Michigan": "E. Michigan", "Northern Illinois": "N. Illinois", "Florida Atlantic": "FAU", "Coastal Carolina": "Coastal",
   "San José State": "San José St.", "San Diego State": "San Diego St.", "Washington State": "Wash. State",
-  "Colorado State": "Colorado St.", "Sacramento State": "Sac State", "New Mexico State": "NM State"};
+  "Colorado State": "Colorado St.", "Sacramento State": "Sac State", "New Mexico State": "NM State",
+  "North Dakota State": "N. Dakota St.", "North Carolina": "N. Carolina"};
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
@@ -59,7 +60,7 @@ function sparkline(vals, w = 64, h = 16, range = null) {
 }
 
 let S = loadState();
-let D = null, origin = "", warnings = [], customMem = null, HIST = null;
+let D = null, origin = "", warnings = [], customMem = null, HIST = null, STAKES = null;
 let REC = [], IDX = new Map(), RT = null;
 let LAST = null, BASE = null, BASEKEY = "", worker = null, runId = 0, pollTimer = 0;
 
@@ -90,7 +91,7 @@ async function loadSeason() {
   let err;
   for (const [url, o] of [["data/season.json", "published"], ["data/demo.json", "demo"]]) {
     try { setSeason(await fetchSeason(url), o); } catch (e) { err = e; continue; }
-    if (o === "published") await loadHistory();
+    if (o === "published") await Promise.all([loadHistory(), loadStakes()]);
     return;
   }
   throw err;
@@ -113,11 +114,34 @@ async function loadHistory() {
   } catch { /* no history yet */ }
 }
 
+// Published national stakes for this week's games (data/stakes.json),
+// keeping only well-formed games between teams in this season's data.
+async function loadStakes() {
+  STAKES = null;
+  try {
+    const res = await fetch("data/stakes.json", {cache: "no-cache"});
+    const raw = res.ok ? await res.json() : null;
+    if (!raw || raw.season !== D.season || !Array.isArray(raw.games)) return;
+    const p = v => typeof v === "number" && v >= 0 && v <= 1;
+    const side = x => x === null ? null : x && IDX.has(String(x.id)) && ["pWin", "now", "ifWin", "ifLose"].every(k => p(x[k]))
+      ? {id: String(x.id), pWin: x.pWin, now: x.now, ifWin: x.ifWin, ifLose: x.ifLose} : undefined;
+    const games = new Map(D.games.map(g => [g.id, g]));
+    const list = raw.games.map(g => ({g: games.get(String(g && g.id)), home: side(g && g.home), away: side(g && g.away),
+      stake: Number(g && g.stake), weight: Number(g && g.weight),
+      others: (Array.isArray(g && g.others) ? g.others : []).filter(o => o && IDX.has(String(o.id)) && Math.abs(o.d) <= 1).map(o => ({id: String(o.id), d: o.d}))}))
+      // A known game, both sides valid (null = non-FBS), and stakes in range
+      // (a stake can't exceed the 12 playoff spots).
+      .filter(x => x.g && x.home !== undefined && x.away !== undefined && (x.home || x.away)
+        && x.stake >= 0 && x.stake <= 12 && x.weight >= 0 && x.weight <= 12);
+    if (list.length) STAKES = {week: Number(raw.week) || 0, date: typeof raw.date === "string" ? raw.date : "", N: Number(raw.N) || 0, games: list};
+  } catch { /* not published yet */ }
+}
+
 const histSeries = (id, k = "cfp") => HIST ? HIST.map(x => x[k][id] || 0) : [];
 const fmtDay = d => new Date(d + "T12:00:00").toLocaleDateString(undefined, {month: "short", day: "numeric"});
 
 function setSeason({season, warnings: w}, o) {
-  D = season; origin = o; warnings = w; HIST = null;
+  D = season; origin = o; warnings = w; HIST = null; STAKES = null;
   IDX = new Map(D.teams.map((t, i) => [t.id, i]));
   REC = teamRecords(D);
   LAST = null; BASE = null; BASEKEY = "";
@@ -303,7 +327,7 @@ function renderGames() {
       ${g.champ ? `<span class="tag">Conference championship game</span>` : ""}</div>`;
   }).join("") : `<p class="note">No remaining games${conf ? ` involving ${esc(conf)} teams` : ""}.</p>`;
   const c = Object.keys(S.forced).length, here = list.filter(g => S.forced[g.id]).length;
-  $("fc").textContent = c ? `${c} game${c > 1 ? "s" : ""} picked${c !== here ? ` (${here} this week)` : ""}` : "";
+  $("fc").textContent = c ? `${c} game${c > 1 ? "s" : ""} picked${c !== here ? ` (${here} in the list below)` : ""}` : "";
   $("clearBtn").disabled = !c;
 }
 
@@ -311,7 +335,7 @@ function renderGames() {
 // 1 for the away team, 2 for the home team).
 function togglePick(id, v) {
   if (S.forced[id] === v) delete S.forced[id]; else S.forced[id] = v;
-  save(); renderGames(); run();
+  save(); renderGames(); renderBigWeek(); run();
 }
 
 // ---- Running -----------------------------------------------------------------
@@ -601,6 +625,63 @@ function renderBids() {
 }
 
 // Opening paragraph: the headline numbers in words.
+// "Sat., 7:30 p.m. ET" (kickoff, Eastern time).
+function kickoff(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", {timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit", hour12: true})
+    .formatToParts(d).map(x => [x.type, x.value]));
+  return `${p.weekday}., ${p.hour}${p.minute === "00" ? "" : ":" + p.minute} ${p.dayPeriod === "PM" ? "p.m." : "a.m."} ET`;
+}
+
+// The week's biggest games nationally, from the published stakes: rank,
+// matchup, each team's playoff chance if it wins or loses (team names are
+// pick buttons), and how much playoff chance is at stake.
+function renderBigWeek() {
+  const sec = $("bigweek");
+  const games = STAKES ? STAKES.games.filter(x => x.g.hp == null).slice(0, 8) : [];
+  sec.hidden = !games.length;
+  if (!games.length) return;
+  const W = 400, padR = 44, x = p => 8 + p * (W - 8 - padR), maxStake = Math.max(...games.map(x => x.stake));
+  const team = id => D.teams[IDX.get(id)];
+  const strip = (side, axisOnly) => {
+    const grid = [0, 0.25, 0.5, 0.75, 1].map(p => `<line class="tick" x1="${x(p)}" x2="${x(p)}" y1="0" y2="26"/>`).join("");
+    if (axisOnly) return `<svg class="db ax" viewBox="0 0 ${W} 16" preserveAspectRatio="none">${[0, 0.5, 1].map(p =>
+      `<text x="${x(p)}" y="11" text-anchor="${p ? p === 1 ? "end" : "middle" : "start"}">${p * 100}%${p === 0.5 ? " chance to make the playoff" : ""}</text>`).join("")}</svg>`;
+    if (!side) return `<svg class="db" viewBox="0 0 ${W} 26">${grid}</svg>`;
+    const a = x(side.ifLose), b = x(side.ifWin), y = 13;
+    return `<svg class="db" viewBox="0 0 ${W} 26" role="img" aria-label="${esc(team(side.id).name)}: ${pc(side.ifWin)} if it wins, ${pc(side.ifLose)} if it loses">${grid}
+      <line class="seg" x1="${a}" x2="${b}" y1="${y}" y2="${y}"/><line class="now" x1="${x(side.now)}" x2="${x(side.now)}" y1="${y - 7}" y2="${y + 7}"/>
+      <circle class="lose" cx="${a}" cy="${y}" r="4.5"/><circle class="win" cx="${b}" cy="${y}" r="5"/>
+      <text x="${Math.min(a, b) - 8}" y="${y + 4}" text-anchor="end">${b >= a ? pc(side.ifLose) : pc(side.ifWin)}</text>
+      <text class="v" x="${Math.max(a, b) + 8}" y="${y + 4}">${b >= a ? pc(side.ifWin) : pc(side.ifLose)}</text></svg>`;
+  };
+  const row = (g, side, v, name) => {
+    const f = S.forced[g.id] || 0;
+    const btn = `<button data-k="${esc(g.id)}" data-v="${v}" class="${f === v ? "on" : f ? "off" : ""}" aria-pressed="${f === v}"
+      title="${f === v ? "Undo this pick" : `Pick ${esc(name)} to win`}">${esc(sh(name))}</button>`;
+    return `<div class="db-row">${btn}${strip(side)}</div>`;
+  };
+  $("bwKicker").textContent = `Week ${STAKES.week} · The games that matter`;
+  $("bwHead").textContent = `The ${games.length === 8 ? "Eight" : NUMW[games.length] ? NUMW[games.length][0].toUpperCase() + NUMW[games.length].slice(1) : games.length} Games That Will Shape the Playoff Race This Week`;
+  $("bwList").innerHTML = games.map((s, k) => {
+    const g = s.g, A = gName(g, "a"), H = gName(g, "h");
+    const fav = s.home && s.home.pWin >= 0.5 ? [H, s.home.pWin] : s.away ? [A, s.away.pWin] : [H, s.home.pWin];
+    const also = s.others.length && s.home ? `If <b>${esc(H)}</b> wins: ` + s.others.map(o => `${esc(team(o.id).name)} ${o.d > 0 ? "+" : "−"}${Math.round(Math.abs(o.d) * 100)}`).join(", ") + " (points of playoff chance)" : "";
+    return `<div class="bw">
+      <div class="rank">${k + 1}</div>
+      <div class="match"><div class="t">${esc(A)} <span>${g.neutral ? "vs." : "at"}</span> ${esc(H)}</div>
+        <div class="s">${esc(kickoff(g.date))}${g.date ? " · " : ""}${esc(fav[0])} wins ${pw(fav[1])} of the time</div></div>
+      <div class="chart">${k === 0 ? `<div class="db-axis"><span></span>${strip(null, true)}</div>` : ""}${row(g, s.away, 1, A)}${row(g, s.home, 2, H)}</div>
+      <div class="stake"><div class="v">${Math.round(s.stake * 100)}</div><div class="l">points of playoff<br>chance at stake</div>
+        <div class="bar"><div style="width:${(s.stake / maxStake * 100).toFixed(0)}%"></div></div></div>
+      ${also ? `<div class="also">${also}</div>` : ""}
+    </div>`;
+  }).join("");
+  $("bwFoot").textContent = `Published ${STAKES.date ? apDay(STAKES.date) : ""} from ${STAKES.N ? STAKES.N.toLocaleString() + " " : ""}simulations per result with the default model settings, so these numbers don't change with your picks or settings. `
+    + `"Playoff chance at stake" adds up how many percentage points of playoff chance move between teams from one result to the other, including teams not playing in the game.`;
+}
+
 // One or two sentences on the selected conference's race.
 function renderConfIntro() {
   const {A, P} = LAST, N = A.N, c = P.confs.findIndex(x => x.name === S.view.conf);
@@ -812,6 +893,7 @@ function renderAll() {
   renderInfo();
   renderTeams();
   renderGames();
+  renderBigWeek();
   renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); renderBigGames(); renderTeamPage();
 }
 
@@ -858,7 +940,7 @@ function bindStatic() {
   };
   $("runBtn").onclick = run;
   $("refreshBtn").onclick = refresh;
-  $("clearBtn").onclick = () => { S.forced = {}; save(); renderGames(); run(); };
+  $("clearBtn").onclick = () => { S.forced = {}; save(); renderGames(); renderBigWeek(); run(); };
   $("confSel").onchange = () => { S.view.conf = $("confSel").value; S.view.sort = null; save(); renderTeams(); renderGames(); renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); renderBigGames(); renderTeamPage(); };
   $("weekSel").onchange = () => { S.view.week = +$("weekSel").value; save(); renderGames(); renderBigGames(); };
   $("teamSel").onchange = () => { S.view.team = $("teamSel").value; save(); renderTeamPage(); renderNatChart(); };

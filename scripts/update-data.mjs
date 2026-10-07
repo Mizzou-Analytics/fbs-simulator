@@ -15,11 +15,13 @@ import path from "node:path";
 import {validateSeason} from "../js/model.js";
 import {fetchRetry, cfbdClient} from "./net.mjs";
 import {oddsSnapshot, addSnapshot, serializeHistory} from "./odds.mjs";
+import {weekStakes} from "./stakes.mjs";
 import {normTeams, normGames, eloByWeek, normRatings, parseSheet, sheetCsvUrl, buildSeason, seasonYear, serialize, sameData} from "./sources.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(root, "data", "season.json");
 const HISTORY = path.join(root, "data", "odds-history.json");
+const STAKES = path.join(root, "data", "stakes.json");
 const args = process.argv.slice(2);
 const scoresOnly = args.includes("--scores-only");
 const yi = args.indexOf("--year");
@@ -85,6 +87,10 @@ async function main() {
     const snap = oddsSnapshot(valid, today);
     await writeFile(HISTORY, serializeHistory(addSnapshot(hist, snap, year)));
     console.log(`Saved odds snapshot for ${today}.`);
+    // This week's biggest games nationally (about two minutes).
+    const stakes = weekStakes(valid, {date: today});
+    await writeFile(STAKES, JSON.stringify(stakes) + "\n");
+    console.log(`Saved stakes for ${stakes.games.length} week-${stakes.week} games.`);
   }
 }
 

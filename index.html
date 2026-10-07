@@ -179,6 +179,51 @@ svg.chart .gm{stroke:var(--faint)}
 .fig .fv{font-size:34px;font-weight:800;line-height:1;letter-spacing:-.02em}
 .fig .fl{font-size:12px;color:var(--muted);margin-top:4px}
 
+
+/* Biggest games this week */
+.bw-key{display:flex;flex-wrap:wrap;gap:6px 22px;align-items:center;font-size:12px;color:var(--muted);margin:10px 0 6px}
+.bw-key svg{vertical-align:middle;margin-right:5px}
+.bw{display:grid;grid-template-columns:44px minmax(190px,1.1fr) minmax(320px,2fr) 108px;gap:6px 18px;align-items:start;padding:16px 0;border-top:1px solid var(--rule)}
+.bw:first-child{border-top:2px solid var(--text)}
+.bw .rank{font-family:var(--serif);font-weight:700;font-size:34px;line-height:1;color:var(--faint);text-align:right}
+.bw:nth-child(-n+3) .rank{color:var(--text)}
+.bw .t{font-weight:700;font-size:16px;line-height:1.25}
+.bw .t span{font-weight:400;color:var(--muted)}
+.bw .s{font-size:12px;color:var(--muted);margin-top:3px}
+.bw .stake{text-align:right}
+.bw .stake .v{font-weight:800;font-size:30px;line-height:1;letter-spacing:-.02em}
+.bw .stake .l{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.25}
+.bw .stake .bar{height:4px;background:var(--rule);margin-top:6px}
+.bw .stake .bar div{height:100%;background:var(--text)}
+.bw .also{grid-column:2/4;font-size:12px;color:var(--muted)}
+.bw .also b{color:var(--text);font-weight:600}
+.db-row{display:grid;grid-template-columns:118px 1fr;align-items:center;gap:6px}
+.db-row button{height:auto;min-height:26px;padding:3px 8px;text-align:left;font-size:12px;font-weight:600;border-color:transparent;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.db-row button:hover{border-color:var(--rule)}
+.db-row button.on{background:var(--pick);color:var(--pickText);border-color:var(--pick)}
+.db-row button.off{opacity:.45}
+.db-axis{display:grid;grid-template-columns:118px 1fr;gap:6px}
+svg.db{display:block;width:100%;height:26px;overflow:visible}
+svg.db.ax{height:16px}
+svg.db text{font:11px var(--sans);fill:var(--muted)}
+svg.db text.v{fill:var(--text);font-weight:700;font-size:12px}
+svg.db .tick{stroke:var(--rule)}
+svg.db .seg{stroke:var(--text);stroke-width:3}
+svg.db .win{fill:var(--text)}
+svg.db .lose{fill:var(--bg);stroke:var(--text);stroke-width:2}
+svg.db .now{stroke:var(--accent);stroke-width:2}
+.bw-foot{margin-top:10px;padding-top:10px;border-top:1px solid var(--rule)}
+@media (max-width:640px){
+  .bw{grid-template-columns:30px 1fr 84px;grid-template-areas:"rank match stake" "chart chart chart" "also also also"}
+  .bw .rank{grid-area:rank;font-size:26px}
+  .bw .match{grid-area:match}
+  .bw .stake{grid-area:stake}
+  .bw .stake .v{font-size:24px}
+  .bw .chart{grid-area:chart}
+  .bw .also{grid-area:also}
+  .db-row,.db-axis{grid-template-columns:96px 1fr}
+}
+
 /* How this works */
 details{border-top:1px solid var(--rule);padding:12px 0}
 details:last-of-type{border-bottom:1px solid var(--rule)}
@@ -214,6 +259,7 @@ try { const t = localStorage.getItem("fbsSim.theme"); if (t === "light" || t ===
 
 <nav class="bar" aria-label="Sections">
   <div class="wrap">
+    <a href="#bigweek">Biggest games</a>
     <a href="#teamSec">Follow a team</a>
     <a href="#playoff">Playoff field</a>
     <a href="#whatif">Pick the winners</a>
@@ -237,6 +283,21 @@ try { const t = localStorage.getItem("fbsSim.theme"); if (t === "light" || t ===
     <div class="prog" id="prog"><div id="progBar"></div></div>
     <div id="status"></div>
   </div>
+
+  <section id="bigweek" hidden>
+    <div class="col">
+      <p class="kicker" id="bwKicker" style="margin-top:0">The games that matter</p>
+      <h2 id="bwHead">The Games That Will Shape the Playoff Race This Week</h2>
+      <p class="intro">Ranked by how much playoff chance changes hands across all of college football depending on who wins, weighted by how uncertain each game is. Each line shows a team's chance to make the playoff if it wins and if it loses. Click a team to pick it to win.</p>
+    </div>
+    <div class="bw-key">
+      <span><svg width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="currentColor"/></svg>If they win</span>
+      <span><svg width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>If they lose</span>
+      <span><svg width="12" height="12" aria-hidden="true"><line x1="6" y1="0" x2="6" y2="12" stroke="var(--accent)" stroke-width="2"/></svg>Chance today</span>
+    </div>
+    <div id="bwList"></div>
+    <p class="note bw-foot" id="bwFoot"></p>
+  </section>
 
   <section id="teamSec">
     <div class="col">

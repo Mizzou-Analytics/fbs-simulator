@@ -119,6 +119,8 @@ The top *auto bids* conference champions by score get in. The highest remaining 
 
 **Games that matter and team pages.** For every remaining game, the simulator tracks each team's playoff and conference-title odds in seasons where it wins versus loses. The What-if section ranks the selected week's games by how much they move those odds. Each team's page shows its outlook, its published odds by day, and its full schedule with results, win chances and what each remaining game is worth. Team names across the page link to their team page.
 
+**The week's biggest games.** After each data update, the workflow also reruns the season twice for every game in the current week, once with each team forced to win, using the same random draws. It measures how much playoff chance moves between teams, counting every team in FBS, not just the two playing. The games are ranked by that amount times how close the game is: a toss-up counts in full, a near-certain result hardly at all. The top eight appear at the top of the page as a dot chart of each team's playoff chance if it wins and if it loses. These numbers are saved to `data/stakes.json` and use the default settings.
+
 **Odds history.** After each data update, the workflow simulates the season with the default settings and saves that day's odds to `data/odds-history.json`. The page draws each team's playoff-odds trend from it and names the biggest risers and fallers of the past week. Your own settings and what-ifs don't change these published numbers.
 
 **Pick the winners.** Click a team's button to pick it to win, and click it again to undo. Each simulated season draws its random numbers from its own seeded generator, in a fixed order whether or not a game is forced. So the run with your picks and the baseline run without them see identical luck everywhere else. The green and red numbers show only what your picks changed. Games are keyed by their schedule id, so rematches are separate picks.
@@ -165,6 +167,7 @@ First-round hosting and title forecasts barely moved. Two seasons are a small sa
 | `js/worker.js` | Runs the simulation in a Web Worker so the page stays responsive |
 | `scripts/update-data.mjs`, `scripts/sources.mjs` | Data pipeline (CFBD, plus an optional ratings sheet) |
 | `scripts/odds.mjs` | Daily odds snapshots for `data/odds-history.json` |
+| `scripts/stakes.mjs` | The week's biggest games nationally, for `data/stakes.json` |
 | `scripts/backtest.mjs`, `scripts/backtest-lib.mjs` | Past-season backtest |
 | `scripts/make-demo-data.mjs` | Generates `data/demo.json` |
 | `data/sources.json` | Which CFBD ratings to pull, and optional ratings-sheet settings |
