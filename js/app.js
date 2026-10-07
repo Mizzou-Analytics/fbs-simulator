@@ -251,7 +251,7 @@ function bindSettings() {
       save();
       if (k === "model") showModel();
       if (g === "cfp") $("cfpErr").textContent = bracketError(S.cfp) || "";
-      if (["source", "hfa", "fcs", "priorW", "cap", "gsd", "rsd"].includes(k)) { computeRatings(); renderTeams(); renderGames(); }
+      if (["source", "hfa", "fcs", "priorW", "cap", "gsd", "rsd"].includes(k)) { computeRatings(); renderTeams(); renderPicks(); }
     };
     el.oninput = el.tagName === "SELECT" ? null : apply;
     el.onchange = () => { apply(); if (el.tagName !== "SELECT") el.value = S[g][k]; };
@@ -300,42 +300,55 @@ function renderTeams() {
     const v = el.value.trim(), x = Number(v);
     if (!v || !Number.isFinite(x)) delete S.overrides[el.dataset.id];
     else S.overrides[el.dataset.id] = clampRating(x);
-    save(); computeRatings(); renderGames();
+    save(); computeRatings(); renderPicks();
   });
 }
 
 const gName = (g, side) => side === "h" ? (g.home ? D.teams[IDX.get(g.home)].name : g.homeName) : (g.away ? D.teams[IDX.get(g.away)].name : g.awayName);
 const gConf = (g, conf) => (g.home && D.teams[IDX.get(g.home)].conf === conf) || (g.away && D.teams[IDX.get(g.away)].conf === conf);
 
-// Pick the winners: two buttons per game. Clicking a team forces its win;
-// clicking it again undoes the pick.
-function renderGames() {
-  const conf = S.view.conf, rem = D.games.filter(g => g.hp == null && (!conf || gConf(g, conf)));
-  const weeks = [...new Set(rem.map(g => g.week))].sort((a, b) => a - b);
-  if (!weeks.includes(S.view.week)) S.view.week = weeks.length ? weeks[0] : null;
-  $("weekSel").innerHTML = weeks.map(w => `<option value="${w}"${w === S.view.week ? " selected" : ""}>Week ${w}</option>`).join("");
-  $("weekSel").disabled = !weeks.length;
+// Pick the rest of the followed team's schedule: two buttons per remaining
+// game. Clicking a team forces its win; clicking it again undoes the pick.
+function renderPicks() {
+  const id = S.view.team, c = Object.keys(S.forced).length;
+  $("clearBtn").disabled = !c;
+  if (!id || !IDX.has(id)) {
+    $("games").innerHTML = "";
+    $("winOutBtn").disabled = true;
+    $("fc").textContent = c ? `${c} game${c > 1 ? "s" : ""} picked` : "";
+    return;
+  }
+  const t = D.teams[IDX.get(id)], list = D.games.filter(g => g.hp == null && (g.home === id || g.away === id));
+  $("pkHead").textContent = `Pick the rest of ${t.name}'s schedule`;
   const {hfa, gsd, rsd, fcs} = S.settings, sd = Math.sqrt(gsd * gsd + 2 * rsd * rsd) || 1;
-  const rating = id => id ? RT.eff[id] : fcs;
-  const list = rem.filter(g => g.week === S.view.week);
+  const rating = x => x ? RT.eff[x] : fcs;
   $("games").innerHTML = list.length ? list.map(g => {
     const A = gName(g, "a"), H = gName(g, "h"), f = S.forced[g.id] || 0;
-    const ph = phi((rating(g.home) - rating(g.away) + (g.neutral ? 0 : hfa)) / sd);
+    const ph = phi((rating(g.home) - rating(g.away) + (g.neutral ? 0 : hfa)) / sd), when = g.date ? kickoff(g.date) : "";
     const btn = (v, nameTxt, p) => `<button data-k="${esc(g.id)}" data-v="${v}" class="${f === v ? "on" : f ? "off" : ""}" aria-pressed="${f === v}"
         title="${f === v ? "Undo this pick" : `Pick ${esc(nameTxt)} to win`}">${esc(sh(nameTxt))}<span>${f === v ? "Your pick" : `${pc(p)} to win`}</span></button>`;
-    return `<div class="pick">${btn(1, A, 1 - ph)}<span class="at">${g.neutral ? "vs." : "at"}</span>${btn(2, H, ph)}
-      ${g.champ ? `<span class="tag">Conference championship game</span>` : ""}</div>`;
-  }).join("") : `<p class="note">No remaining games${conf ? ` involving ${esc(conf)} teams` : ""}.</p>`;
-  const c = Object.keys(S.forced).length, here = list.filter(g => S.forced[g.id]).length;
-  $("fc").textContent = c ? `${c} game${c > 1 ? "s" : ""} picked${c !== here ? ` (${here} in the list below)` : ""}` : "";
-  $("clearBtn").disabled = !c;
+    return `<div class="pick"><span class="tag">Week ${g.week}${when ? ` · ${esc(when)}` : ""}${g.champ ? " · conference championship game" : ""}</span>
+      ${btn(1, A, 1 - ph)}<span class="at">${g.neutral ? "vs." : "at"}</span>${btn(2, H, ph)}</div>`;
+  }).join("") : `<p class="col note">${esc(t.name)} has no games left to play${D.games.some(g => g.home === id || g.away === id) ? " on the schedule" : ""}.</p>`;
+  const mine = list.filter(g => S.forced[g.id]).length, other = c - mine;
+  $("fc").textContent = c ? `${mine} of ${list.length} picked${other ? `, plus ${other} other game${other > 1 ? "s" : ""}` : ""}` : "";
+  $("winOutBtn").textContent = `${sh(t.name)} wins out`;
+  $("winOutBtn").disabled = !list.length || list.every(g => S.forced[g.id] === (g.home === id ? 2 : 1));
+}
+
+// Picks the followed team to win every remaining game.
+function winOut() {
+  const id = S.view.team;
+  if (!id) return;
+  for (const g of D.games) if (g.hp == null && (g.home === id || g.away === id)) S.forced[g.id] = g.home === id ? 2 : 1;
+  save(); renderPicks(); renderBigWeek(); run();
 }
 
 // Sets or clears a pick from any pick button (data-k = game id, data-v =
 // 1 for the away team, 2 for the home team).
 function togglePick(id, v) {
   if (S.forced[id] === v) delete S.forced[id]; else S.forced[id] = v;
-  save(); renderGames(); renderBigWeek(); run();
+  save(); renderPicks(); renderBigWeek(); run();
 }
 
 // ---- Running -----------------------------------------------------------------
@@ -364,7 +377,7 @@ function run() {
     setProgress(null);
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
     $("status").textContent = `Based on ${A.N.toLocaleString()} simulations (${secs} seconds).` + (any ? " Green and red numbers show the change from your picks, in percentage points." : "");
-    renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); renderBigGames(); renderTeamPage();
+    renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); renderTeamPage();
   };
   const fail = msg => { if (id === runId) { setProgress(null); $("status").textContent = `Simulation failed: ${msg}`; } };
 
@@ -773,39 +786,6 @@ function gameStakes(j) {
 
 const GAME_INDEX = () => new Map(LAST.P.remIds.map((id, j) => [id, j]));
 
-// The selected week's games that move playoff and title odds the most.
-// The selected week's games that move playoff and title chances the most,
-// as cards: each team's chances if it wins and if it loses, with buttons to
-// make the pick.
-function renderBigGames() {
-  const el = $("bigGames");
-  if (!LAST) { el.innerHTML = ""; return; }
-  const conf = S.view.conf, gi = GAME_INDEX();
-  const rows = D.games.filter(g => g.hp == null && g.week === S.view.week && (!conf || gConf(g, conf)) && gi.has(g.id))
-    .map(g => ({g, st: gameStakes(gi.get(g.id))})).filter(x => x.st && x.st.weight >= 0.02)
-    .sort((a, b) => b.st.weight - a.st.weight).slice(0, 6);
-  if (!rows.length) {
-    const picked = D.games.some(g => g.hp == null && g.week === S.view.week && S.forced[g.id]);
-    el.innerHTML = `<p class="note">${picked ? "Your picks have settled this week's biggest games." : `No game this week changes playoff or title chances by much${conf ? ` for ${esc(conf)} teams` : ""}.`}</p>`;
-    return;
-  }
-  el.innerHTML = `<div class="cards">${rows.map(({g, st}) => {
-    const A = gName(g, "a"), H = gName(g, "h"), aw = st.away, hm = st.home;
-    const fav = hm && aw ? (hm.pWin >= 0.5 ? [H, hm.pWin] : [A, aw.pWin]) : null;
-    // Column 0: if the away team wins; column 1: if the home team wins.
-    const cell = (x, k, awayWins) => x ? pc((x === aw) === awayWins ? x[k + "Win"] : x[k + "Loss"]) : "";
-    const row = (x, nameTxt, k) => x ? `<tr><td>${tl(D.teams[x.i].id, sh(nameTxt))}</td><td class="num">${cell(x, k, true)}</td><td class="num">${cell(x, k, false)}</td></tr>` : "";
-    const sameConf = hm && aw && D.teams[hm.i].conf === D.teams[aw.i].conf;
-    const btn = (v, nameTxt) => `<button data-k="${esc(g.id)}" data-v="${v}">If ${esc(sh(nameTxt))} wins</button>`;
-    return `<div class="card"><div class="title">${esc(A)} ${g.neutral ? "vs." : "at"} ${esc(H)}</div>
-      <div class="sub">${fav ? `${esc(fav[0])} wins ${pw(fav[1])} of the time` : ""}${g.champ ? " · conference championship" : ""}</div>
-      <table><thead><tr><th>Chance to make the playoff</th><th class="num">${btn(1, A)}</th><th class="num">${btn(2, H)}</th></tr></thead>
-      <tbody>${row(aw, A, "cfp")}${row(hm, H, "cfp")}</tbody></table>
-      ${sameConf ? `<table style="margin-top:6px"><thead><tr><th>Chance to win the ${esc(CONF_SHORT[D.teams[hm.i].conf] || D.teams[hm.i].conf)}</th><th></th><th></th></tr></thead>
-      <tbody>${row(aw, A, "ch")}${row(hm, H, "ch")}</tbody></table>` : ""}</div>`;
-  }).join("")}</div>`;
-}
-
 // One team: odds, published odds over time, and every game on the schedule
 // with what the remaining ones are worth.
 // Follow a team: headline numbers, the outlook in words, what it needs,
@@ -846,7 +826,7 @@ function renderTeamPage() {
       + andList(key.map((x, k) => `${opp(x)} ${Math.round(x.winIn * 100)} percent${k ? "" : " of the time"} (vs. ${Math.round(x.pWin * 100)} percent overall)`))
       + `. Those are the games that matter most for its playoff hopes.</p>`;
   } else if (pIn > 0.995) html += `<p class="intro">${esc(t.name)} makes the playoff in virtually every simulation; the question is seeding.</p>`;
-  html += `</div>`;
+  html += seedHistogram(i) + `</div>`;
 
   if (HIST && HIST.length > 1) {
     const marks = rows.filter(g => g.hp != null && g.date).map(g => {
@@ -881,6 +861,41 @@ function renderTeamPage() {
     }).join("")}
     </tbody></table></div>`;
   $("teamView").innerHTML = html;
+  renderPicks();
+}
+
+// How often the team gets each playoff seed, as columns grouped by what the
+// seed means (bye, home game, road game). The most likely seed is in red;
+// with picks, a gray line marks each seed's share without them.
+function seedHistogram(i) {
+  const {A, B} = LAST, N = A.N, F = A.F, t = D.teams[i], pIn = A.cfp[i] / N;
+  if (!F) return "";
+  const share = (X, q) => X.seed[i * F + q] / X.N, s = Array.from({length: F}, (_, q) => share(A, q));
+  const base = B ? Array.from({length: F}, (_, q) => share(B, q)) : null;
+  const top = Math.max(...s, ...(base || [])), best = pIn >= 0.005 ? s.indexOf(Math.max(...s)) : -1;
+  const head = `<h3>Where ${esc(t.name)} lands in the bracket</h3>`;
+  if (pIn < 0.005 && (!B || B.cfp[i] / N < 0.005)) return head + `<p class="note">${esc(t.name)} makes the playoff in less than 1 percent of simulations, too few to chart.</p>`;
+  const cols = s.map((v, q) => {
+    // Bars use the bottom 85% so the labels above the tallest one fit.
+    const h = top ? v / top * 85 : 0, bh = base && Math.abs(base[q] - v) >= 0.005 ? base[q] / top * 85 : null, n = A.seed[i * F + q];
+    return `<div class="c${q === best ? " top" : ""}" title="Seed ${q + 1}: ${n.toLocaleString()} of ${N.toLocaleString()} simulations${base ? ` (${pc(base[q])} without your picks)` : ""}">
+      <div class="b" style="height:${h.toFixed(1)}%"></div>${bh != null ? `<div class="base" style="bottom:${bh.toFixed(1)}%"></div>` : ""}
+      ${v > 0 ? `<span class="v" style="bottom:calc(${Math.max(h, bh || 0).toFixed(1)}% + 3px)">${pc(v)}</span>` : ""}</div>`;
+  }).join("");
+  const nums = s.map((_, q) => `<div class="n">${q + 1}</div>`).join("");
+  const hosts = A.M - A.B, groups = [[A.B, "First-round bye"], [hosts, "Hosts first round"], [F - A.B - hosts, "Plays first round away"]];
+  let at = 1;
+  const glabels = groups.filter(([k]) => k > 0).map(([k, label]) => {
+    const g = `<div class="g" style="grid-column:${at} / span ${k}">${k >= 2 ? label : label.split(" ")[0]}</div>`;
+    at += k;
+    return g;
+  }).join("");
+  const missed = 1 - pIn;
+  return head + `<p class="note">Share of the ${N.toLocaleString()} simulations in which ${esc(t.name)} gets each seed. `
+    + (missed > 0 ? `It misses the playoff in ${pw(missed)}` : `It never misses the playoff`)
+    + `${B ? ` (${B.cfp[i] < N ? pw(1 - B.cfp[i] / N) : "never"} without your picks; gray lines show each seed without them)` : ""}. `
+    + `${best >= 0 ? `Seed ${best + 1} is the most likely.` : ""}</p>`
+    + `<div class="sh" style="grid-template-columns:repeat(${F}, minmax(0, 1fr))" role="img" aria-label="${esc(t.name)}'s chance of each playoff seed">${cols}${nums}${glabels}</div>`;
 }
 
 // Published playoff (and conference title) odds by day for one team, on a
@@ -892,9 +907,9 @@ function renderAll() {
   renderConfPicker();
   renderInfo();
   renderTeams();
-  renderGames();
+  renderPicks();
   renderBigWeek();
-  renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); renderBigGames(); renderTeamPage();
+  renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); renderTeamPage();
 }
 
 // ---- Import / export / reset ------------------------------------------------
@@ -940,9 +955,9 @@ function bindStatic() {
   };
   $("runBtn").onclick = run;
   $("refreshBtn").onclick = refresh;
-  $("clearBtn").onclick = () => { S.forced = {}; save(); renderGames(); renderBigWeek(); run(); };
-  $("confSel").onchange = () => { S.view.conf = $("confSel").value; S.view.sort = null; save(); renderTeams(); renderGames(); renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); renderBigGames(); renderTeamPage(); };
-  $("weekSel").onchange = () => { S.view.week = +$("weekSel").value; save(); renderGames(); renderBigGames(); };
+  $("clearBtn").onclick = () => { S.forced = {}; save(); renderPicks(); renderBigWeek(); run(); };
+  $("winOutBtn").onclick = winOut;
+  $("confSel").onchange = () => { S.view.conf = $("confSel").value; S.view.sort = null; save(); renderTeams(); renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); renderTeamPage(); };
   $("teamSel").onchange = () => { S.view.team = $("teamSel").value; save(); renderTeamPage(); renderNatChart(); };
   document.addEventListener("click", e => {
     const pick = e.target.closest("button[data-k][data-v]");
