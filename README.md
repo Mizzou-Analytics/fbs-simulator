@@ -121,7 +121,7 @@ The top *auto bids* conference champions by score get in. The highest remaining 
 
 **Odds history.** After each data update, the workflow simulates the season with the default settings and saves that day's odds to `data/odds-history.json`. The page draws each team's playoff-odds trend from it and names the biggest risers and fallers of the past week. Your own settings and what-ifs don't change these published numbers.
 
-**What-ifs.** Each simulated season draws its random numbers from its own seeded generator, in a fixed order whether or not a game is forced. So the run with your what-ifs and the baseline run without them see identical luck everywhere else. The colored +/− numbers show only what your what-ifs changed. Games are keyed by their schedule id, so rematches are separate what-ifs.
+**Pick the winners.** Click a team's button to pick it to win, and click it again to undo. Each simulated season draws its random numbers from its own seeded generator, in a fixed order whether or not a game is forced. So the run with your picks and the baseline run without them see identical luck everywhere else. The green and red numbers show only what your picks changed. Games are keyed by their schedule id, so rematches are separate picks.
 
 ## Backtest
 
