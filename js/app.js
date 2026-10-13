@@ -377,7 +377,7 @@ function run() {
     setProgress(null);
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
     $("status").textContent = `Based on ${A.N.toLocaleString()} simulations (${secs} seconds).` + (any ? " Green and red numbers show the change from your picks, in percentage points." : "");
-    renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); renderTeamPage();
+    renderSummary(); renderResults(); renderNational(); renderMatrix(); renderHeat(); renderBids(); renderTeamPage();
   };
   const fail = msg => { if (id === runId) { setProgress(null); $("status").textContent = `Simulation failed: ${msg}`; } };
 
@@ -786,6 +786,95 @@ function gameStakes(j) {
 
 const GAME_INDEX = () => new Map(LAST.P.remIds.map((id, j) => [id, j]));
 
+// Contenders still to play each other: every team at or above the chosen
+// playoff chance, grouped by conference, in a matrix. A filled cell is a
+// remaining game, shaded by how much playoff chance the two teams have riding
+// on it combined; a faint W or L is a game already played (row team's result).
+// Ink from 15% at 20 points or less to solid at 90 points or more.
+const mxShade = v => 15 + 85 * Math.min(1, Math.max(0, (v - 0.2) / 0.7));
+function renderMatrix() {
+  if (!LAST) return;
+  const {A} = LAST, N = A.N, th = S.view.mx || 0.1, gi = GAME_INDEX();
+  $("mxSel").value = String(th);
+  const ids = D.teams.map((_, i) => i).filter(i => A.cfp[i] / N >= th);
+  // Conferences in order of their best contender; teams by playoff chance.
+  const best = new Map();
+  for (const i of ids) best.set(D.teams[i].conf, Math.max(best.get(D.teams[i].conf) || 0, A.cfp[i]));
+  ids.sort((a, b) => {
+    const ca = D.teams[a].conf, cb = D.teams[b].conf;
+    return ca === cb ? A.cfp[b] - A.cfp[a] : best.get(cb) - best.get(ca) || ca.localeCompare(cb);
+  });
+  const inSet = new Set(ids.map(i => D.teams[i].id)), pair = new Map(), games = [];
+  for (const g of D.games) {
+    if (!g.home || !g.away || !inSet.has(g.home) || !inSet.has(g.away)) continue;
+    for (const k of [g.home + "|" + g.away, g.away + "|" + g.home]) { if (!pair.has(k)) pair.set(k, []); pair.get(k).push(g); }
+    if (g.hp == null) games.push(g);
+  }
+  // Points of playoff chance the two teams have riding on a game: each one's
+  // chance if it wins minus if it loses, added together.
+  const info = new Map(games.map(g => {
+    const st = gi.has(g.id) ? gameStakes(gi.get(g.id)) : null;
+    return [g.id, st && st.home && st.away ? {st, v: (st.home.cfpWin - st.home.cfpLoss) + (st.away.cfpWin - st.away.cfpLoss)} : null];
+  }));
+  const nm = id => D.teams[IDX.get(id)].name, cs = c => CONF_SHORT[c] || c;
+  const matchup = g => `${nm(g.away)} ${g.neutral ? "vs." : "at"} ${nm(g.home)}`;
+  const tip = (g, rowId) => {
+    if (g.hp != null) return `Week ${g.week}: ${nm(g.away)} ${g.ap}, ${nm(g.home)} ${g.hp}`;
+    const f = S.forced[g.id], x = info.get(g.id);
+    if (f) return `Week ${g.week}: ${matchup(g)}. Your pick: ${nm(f === 2 ? g.home : g.away)}`;
+    if (!x) return `Week ${g.week}: ${matchup(g)}`;
+    const side = (s, id) => `${nm(id)} ${pc(s.cfpWin)} if it wins, ${pc(s.cfpLoss)} if it loses`;
+    const fav = x.st.home.pWin >= 0.5 ? [g.home, x.st.home.pWin] : [g.away, x.st.away.pWin];
+    return `Week ${g.week}: ${matchup(g)}. ${nm(fav[0])} wins ${pc(fav[1])}. Playoff chance: ${side(rowId === g.home ? x.st.home : x.st.away, rowId)}; `
+      + `${side(rowId === g.home ? x.st.away : x.st.home, rowId === g.home ? g.away : g.home)}. ${Math.round(x.v * 100)} points at stake.`;
+  };
+  const cellHtml = (rowId, colId) => {
+    if (rowId === colId) return `<td class="c self"></td>`;
+    const list = pair.get(rowId + "|" + colId);
+    if (!list) return `<td class="c"></td>`;
+    const g = list.find(x => x.hp == null) || list[list.length - 1], t = esc(tip(g, rowId));
+    if (g.hp != null) {
+      const won = (g.home === rowId ? g.hp > g.ap : g.ap > g.hp);
+      return `<td class="c pl" title="${t}">${won ? "W" : "L"}</td>`;
+    }
+    if (S.forced[g.id]) return `<td class="c pk" title="${t}">${g.week}</td>`;
+    const x = info.get(g.id), shd = x ? mxShade(x.v) : 12;
+    return `<td class="c gm" title="${t}" style="background:color-mix(in srgb, var(--ink) ${shd.toFixed(0)}%, transparent);${shd > 55 ? "color:var(--bg)" : ""}">${g.week}</td>`;
+  };
+  // A narrow spacer column and a labeled row separate conferences.
+  const brk = k => k > 0 && D.teams[ids[k]].conf !== D.teams[ids[k - 1]].conf;
+  const sp = (k, tag) => brk(k) ? `<${tag} class="sp"></${tag}>` : "";
+  const nGroups = new Set(ids.map(i => D.teams[i].conf)).size, span = ids.length + nGroups;
+  let html = `<table class="mx"><thead><tr><th></th>${ids.map((i, k) => `${sp(k, "th")}<th title="${esc(D.teams[i].name)}"><span>${esc(D.teams[i].abbr || sh(D.teams[i].name))}</span></th>`).join("")}</tr></thead><tbody>`;
+  ids.forEach((i, r) => {
+    const t = D.teams[i];
+    if (r === 0 || brk(r)) html += `<tr class="gap"><th colspan="${span}">${esc(cs(t.conf))}</th></tr>`;
+    html += `<tr><th>${tl(t.id)}<span class="pc">${pc(A.cfp[i] / N)}</span></th>${ids.map((j, k) => sp(k, "td") + cellHtml(t.id, D.teams[j].id)).join("")}</tr>`;
+  });
+  $("mxGrid").innerHTML = ids.length > 1 ? html + `</tbody></table>` : `<p class="col note">Fewer than two teams are at that level.</p>`;
+
+  const ramp = [0.2, 0.43, 0.67, 0.9].map(v => `<i style="background:color-mix(in srgb, var(--ink) ${mxShade(v).toFixed(0)}%, transparent)"></i>`).join("");
+  $("mxKey").innerHTML = `<span>Week of a remaining game; darker means more playoff chance at stake:</span><span>20<span class="mx-ramp">${ramp}</span>90+ points</span>`
+    + `<span><i style="box-shadow:inset 0 0 0 1px var(--text)"></i>Your pick</span><span><b style="color:var(--faint);font-weight:400">W</b> / <b style="color:var(--faint);font-weight:400">L</b> already played (row team's result)</span>`;
+
+  games.sort((a, b) => a.week - b.week || (info.get(b.id)?.v || 0) - (info.get(a.id)?.v || 0));
+  const now = games.filter(g => g.week === D.currentWeek).length;
+  const top = games.filter(g => info.get(g.id) && !S.forced[g.id]).sort((a, b) => info.get(b.id).v - info.get(a.id).v)[0];
+  $("mxIntro").innerHTML = `${ids.length} teams have at least a ${Math.round(th * 100)} percent chance to make the playoff. `
+    + (games.length ? `They play each other ${NUMW[games.length] || games.length} more time${games.length > 1 ? "s" : ""} in the regular season${now ? `, ${NUMW[now] || now} of them this week` : ""}.`
+      + (top ? ` The most consequential is ${tl(top.away, nm(top.away))} ${top.neutral ? "vs." : "at"} ${tl(top.home, nm(top.home))} in Week ${top.week}, with ${Math.round(info.get(top.id).v * 100)} points of playoff chance at stake for the two teams.` : "")
+      : "They have no regular-season games left against each other.")
+    + ` Conference title games aren't on the schedule until the matchups are set.`;
+  $("mxCount").textContent = games.length ? ` (${games.length})` : "";
+  $("mxList").innerHTML = games.length ? `<div class="mxl">${games.map(g => {
+    const x = info.get(g.id), f = S.forced[g.id];
+    const fav = x ? (x.st.home.pWin >= 0.5 ? [g.home, x.st.home.pWin] : [g.away, x.st.away.pWin]) : null;
+    return `<div class="wk">Week ${g.week}</div><div>${tl(g.away, nm(g.away))} <span class="muted">${g.neutral ? "vs." : "at"}</span> ${tl(g.home, nm(g.home))}`
+      + `${f ? ` <span class="muted">· your pick: ${esc(sh(nm(f === 2 ? g.home : g.away)))}</span>` : fav ? ` <span class="muted">· ${esc(sh(nm(fav[0])))} ${pc(fav[1])}</span>` : ""}</div>`
+      + `<div class="st">${x && !f ? `<b>${Math.round(x.v * 100)}</b> pts at stake` : ""}</div>`;
+  }).join("")}</div>` : `<p class="note">None.</p>`;
+}
+
 // One team: odds, published odds over time, and every game on the schedule
 // with what the remaining ones are worth.
 // Follow a team: headline numbers, the outlook in words, what it needs,
@@ -909,7 +998,7 @@ function renderAll() {
   renderTeams();
   renderPicks();
   renderBigWeek();
-  renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); renderTeamPage();
+  renderSummary(); renderResults(); renderNational(); renderMatrix(); renderHeat(); renderBids(); renderTeamPage();
 }
 
 // ---- Import / export / reset ------------------------------------------------
@@ -957,7 +1046,8 @@ function bindStatic() {
   $("refreshBtn").onclick = refresh;
   $("clearBtn").onclick = () => { S.forced = {}; save(); renderPicks(); renderBigWeek(); run(); };
   $("winOutBtn").onclick = winOut;
-  $("confSel").onchange = () => { S.view.conf = $("confSel").value; S.view.sort = null; save(); renderTeams(); renderSummary(); renderResults(); renderNational(); renderHeat(); renderBids(); renderTeamPage(); };
+  $("mxSel").onchange = () => { S.view.mx = +$("mxSel").value; save(); renderMatrix(); };
+  $("confSel").onchange = () => { S.view.conf = $("confSel").value; S.view.sort = null; save(); renderTeams(); renderSummary(); renderResults(); renderNational(); renderMatrix(); renderHeat(); renderBids(); renderTeamPage(); };
   $("teamSel").onchange = () => { S.view.team = $("teamSel").value; save(); renderTeamPage(); renderNatChart(); };
   document.addEventListener("click", e => {
     const pick = e.target.closest("button[data-k][data-v]");

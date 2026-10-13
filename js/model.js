@@ -168,7 +168,7 @@ export function validateSeason(raw) {
 
 export function defaultState() {
   return {dv: DEFAULTS_VERSION, settings: {...DEF_SETTINGS}, cfp: {...DEF_CFP}, overrides: {}, forced: {},
-    view: {conf: "SEC", heat: "place", week: null, sort: null, team: null}};
+    view: {conf: "SEC", heat: "place", week: null, sort: null, team: null, mx: 0.1}};
 }
 
 function cleanValue(k, v, def) {
@@ -214,6 +214,7 @@ export function validateState(raw) {
     if (v.heat === "wins") s.view.heat = "wins";
     if (Number.isInteger(v.week)) s.view.week = v.week;
     if (typeof v.team === "string" && v.team.length <= 64) s.view.team = v.team;
+    if ([0.05, 0.1, 0.2].includes(v.mx)) s.view.mx = v.mx;
     if (v.sort && SORT_KEYS.includes(v.sort.key) && (v.sort.dir === 1 || v.sort.dir === -1)) s.view.sort = {key: v.sort.key, dir: v.sort.dir};
   }
   return s;
