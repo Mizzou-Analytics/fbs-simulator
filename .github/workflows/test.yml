@@ -14,3 +14,15 @@ jobs:
         with:
           node-version: 22
       - run: node --test
+
+  predictability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: analysis/predictability/requirements.txt
+      - run: pip install -r analysis/predictability/requirements.txt
+      - run: python -m unittest discover -s analysis/predictability/tests

@@ -172,6 +172,7 @@ First-round hosting and title forecasts barely moved. Two seasons are a small sa
 | `scripts/stakes.mjs` | The week's biggest games nationally, for `data/stakes.json` |
 | `scripts/backtest.mjs`, `scripts/backtest-lib.mjs` | Past-season backtest |
 | `scripts/make-demo-data.mjs` | Generates `data/demo.json` |
+| `analysis/predictability/` | A separate analysis: ranks offenses by how predictable their run/pass calls are (see its README) |
 | `data/sources.json` | Which CFBD ratings to pull, and optional ratings-sheet settings |
 | `test/` | `node --test` (Node 20+) |
 
