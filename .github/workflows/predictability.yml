@@ -32,8 +32,8 @@ jobs:
           CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
         run: |
           python analysis/predictability/run.py --season "${{ inputs.season || '2026' }}" --out out
-          cat out/summary.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+          tee -a "$GITHUB_STEP_SUMMARY" < out/summary.md
+      - uses: actions/upload-artifact@v5
         with:
           name: predictability-${{ inputs.season || '2026' }}
           path: out/

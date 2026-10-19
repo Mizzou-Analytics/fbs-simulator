@@ -153,3 +153,14 @@ def assign_playcallers(df, callers, season):
             label[key >= s["week"] * 10 + s["period"]] = f"{team} ({s['caller']})"
         df.loc[mask, "entity"] = label
     return df
+
+
+def diagnostics(raw):
+    """Counts by CFBD play type and how each was classified, to check the
+    classification against a real season."""
+    df = normalize(raw) if not isinstance(raw, pd.DataFrame) else raw
+    call = [classify(t, x) for t, x in zip(df["play_type"], df["text"])]
+    out = pd.DataFrame({"play_type": df["play_type"], "call": pd.Series(call).fillna("dropped")})
+    table = out.groupby(["play_type", "call"]).size().unstack(fill_value=0)
+    scrambles = int(sum(1 for t, x in zip(df["play_type"], df["text"]) if t in RUSH_TYPES and SCRAMBLE.search(x or "")))
+    return table.sort_values(table.columns.tolist(), ascending=False), scrambles

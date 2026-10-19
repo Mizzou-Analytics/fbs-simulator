@@ -21,7 +21,12 @@ import model  # noqa: E402
 import prep  # noqa: E402
 
 
-def analyze(raw, teams, season, callers=None, log=print):
+def analyze(raw, teams, season, callers=None, log=print, diagnose=False):
+    if diagnose:
+        table, scrambles = prep.diagnostics(raw)
+        log("Play types and how they were classified:")
+        log(table.to_string())
+        log(f"Rushes relabeled as passes (scrambles): {scrambles:,}")
     df = prep.prepare(raw, teams)
     df = prep.assign_playcallers(df, callers, season)
     log(f"{len(df):,} run/pass calls by {df['offense'].nunique()} FBS offenses")
@@ -102,7 +107,7 @@ def main(argv=None):
         data = fetch.season(a.season, key)
         fetch.save(data, out / f"plays-{a.season}.json.gz")
     callers = pd.read_csv(a.playcallers) if a.playcallers and Path(a.playcallers).exists() else None
-    df, rep, params = analyze(data["plays"], data.get("teams"), a.season, callers)
+    df, rep, params = analyze(data["plays"], data.get("teams"), a.season, callers, diagnose=True)
     rep.to_csv(out / f"predictability-{a.season}.csv", index=False, float_format="%.4f")
     (out / "summary.md").write_text(summary(df, rep, a.season, params))
     print(f"Wrote {out / f'predictability-{a.season}.csv'} and {out / 'summary.md'}")
