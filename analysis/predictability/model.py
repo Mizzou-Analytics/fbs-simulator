@@ -5,8 +5,10 @@
 2. A small per-team model adjusts the league chance for the team's own
    tendencies (overall and in a few situations), shrunk toward zero so a
    handful of plays can't define a team.
-3. Scoring is out of sample and in order, like a defense studying film: each
-   game is predicted from the team's earlier games only.
+3. Scoring is out of sample: each game is predicted from the team's other
+   games ("loo", the default, which scores every game), or from its earlier
+   games only ("rolling", like a defense studying film, which needs more of
+   the season before it can rank anyone).
 """
 import numpy as np
 import pandas as pd
@@ -35,7 +37,8 @@ SITUATIONS = {
 TEAM_TERMS = ["on passing downs", "in short yardage", "in the red zone", "when trailing by 9 or more", "when leading by 9 or more",
               "on the play after a pass", "on the first play of a drive", "in the last two minutes of a half"]
 
-MIN_PRIOR = 150      # plays a team must have before its games are scored
+MIN_TRAIN = 100      # calls a team must have outside a game before that game is scored
+MIN_RANK = 100       # scored calls a team needs to be ranked
 NULL_PRIOR = 20      # plays of league pass rate mixed into a team's own rate
 CLIP = 1e-4
 
@@ -83,10 +86,11 @@ def _bits(p, y):
     return -(y * np.log2(p) + (1 - y) * np.log2(1 - p))
 
 
-def rolling(df, off, lam0, lam1, entity="entity"):
-    """Predicts each team's games from its earlier games. Returns per-play
-    out-of-sample chances for the full model, a league-plus-team-rate model,
-    and the team's pass rate alone (NaN where not scored)."""
+def rolling(df, off, lam0, lam1, entity="entity", mode="loo"):
+    """Predicts each team's games from its other games (mode "loo") or its
+    earlier games only ("rolling"). Returns per-play out-of-sample chances for
+    the full model, a league-plus-team-rate model, and the team's pass rate
+    alone (NaN where not scored)."""
     n = len(df)
     full, sit, null = (np.full(n, np.nan) for _ in range(3))
     Z_all, y_all = design(df), df["pass"].to_numpy(float)
@@ -98,8 +102,8 @@ def rolling(df, off, lam0, lam1, entity="entity"):
         seen = []
         for _, gpos in order.items():
             rows = idx[gpos]
-            if len(seen) >= MIN_PRIOR:
-                tr = np.array(seen)
+            tr = np.array(seen) if mode == "rolling" else np.setdiff1d(idx, rows)
+            if len(tr) >= MIN_TRAIN:
                 Z, y, o = Z_all[tr], y_all[tr], off[tr]
                 b = fit_offset_logit(Z, y, o, lam_full)
                 full[rows] = expit(off[rows] + Z_all[rows] @ b)
@@ -110,13 +114,13 @@ def rolling(df, off, lam0, lam1, entity="entity"):
     return full, sit, null
 
 
-def tune(df, off, grid0=(0.5, 2.0, 8.0), grid1=(4.0, 16.0, 64.0)):
+def tune(df, off, mode="loo", grid0=(0.5, 2.0, 8.0, 32.0), grid1=(4.0, 16.0, 64.0)):
     """The shrinkage that predicts best, pooled over all teams."""
     best = None
     y = df["pass"].to_numpy(float)
     for l0 in grid0:
         for l1 in grid1:
-            full, _, _ = rolling(df, off, l0, l1)
+            full, _, _ = rolling(df, off, l0, l1, mode=mode)
             m = ~np.isnan(full)
             score = _bits(full[m], y[m]).mean()
             if best is None or score < best[0]:
@@ -144,7 +148,7 @@ def tendency(sub, off):
     return f"{'passes' if d > 0 else 'runs'} {abs(d) * 100:.0f} pts more than expected {name}"
 
 
-def report(df, off, full, sit, null, entity="entity", min_scored=MIN_PRIOR):
+def report(df, off, full, sit, null, entity="entity", min_scored=MIN_RANK):
     """One row per team (or play-calling stint), most predictable first."""
     y = df["pass"].to_numpy(float)
     epa = df["epa"].to_numpy(float)
@@ -175,6 +179,7 @@ def report(df, off, full, sit, null, entity="entity", min_scored=MIN_PRIOR):
         rows.append(r)
     out = pd.DataFrame(rows)
     out["predictability"] = 100 * (1 - out.get("bits_per_call", np.nan))
+    out["beyond_pass_rate"] = 100 * (out.get("bits_pass_rate_only", np.nan) - out.get("bits_per_call", np.nan))
     out["ranked"] = out["calls_scored"] >= min_scored
     out = out.sort_values(["ranked", "predictability"], ascending=[False, False]).reset_index(drop=True)
     out["rank"] = np.where(out["ranked"], np.arange(1, len(out) + 1), np.nan)

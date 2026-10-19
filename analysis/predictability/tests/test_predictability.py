@@ -111,9 +111,18 @@ class EndToEnd(unittest.TestCase):
         self.assertLess(abs(r.iloc[-1]["called_right"] - 0.5), 0.08)
         self.assertLess(abs(r.iloc[-1]["predictability"]), 6)
 
-    def test_scoring_uses_only_earlier_games(self):
+    def test_every_game_is_scored_without_itself(self):
         robot = self.rep[self.rep["team"] == "Robot"].iloc[0]
-        self.assertLess(robot["games_scored"], robot["games"])
+        self.assertEqual(robot["games_scored"], robot["games"])
+        self.assertGreater(robot["beyond_pass_rate"], 50)
+
+    def test_rolling_mode_scores_only_from_earlier_games(self):
+        import model
+        df = self.df
+        off = np.zeros(len(df))
+        full, _, _ = model.rolling(df, off, 1.0, 10.0, mode="rolling")
+        first = df.groupby("entity")["week"].transform("min") == df["week"]
+        self.assertTrue(np.isnan(full[first.to_numpy()]).all())
 
     def test_summary_renders(self):
         md = run.summary(self.df, self.rep, 2026, self.params)

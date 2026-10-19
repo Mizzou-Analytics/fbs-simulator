@@ -10,6 +10,11 @@ on:
       season:
         description: "Season"
         default: "2026"
+      mode:
+        description: "Scoring: loo (each game from the team's other games) or rolling (earlier games only)"
+        type: choice
+        options: [loo, rolling]
+        default: loo
   push:
     branches-ignore: [main]
     paths: ["analysis/predictability/**", ".github/workflows/predictability.yml"]
@@ -31,7 +36,7 @@ jobs:
         env:
           CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
         run: |
-          python analysis/predictability/run.py --season "${{ inputs.season || '2026' }}" --out out
+          python analysis/predictability/run.py --season "${{ inputs.season || '2026' }}" --out out --mode "${{ inputs.mode || 'loo' }}"
           tee -a "$GITHUB_STEP_SUMMARY" < out/summary.md
       - uses: actions/upload-artifact@v5
         with:

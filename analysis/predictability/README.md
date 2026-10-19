@@ -4,7 +4,7 @@ This ranks FBS offenses by how predictable their run/pass calls are, using Colle
 
 ## Running it
 
-From the Actions tab, run **Play-call predictability** and choose the season. The run uses about 18 CFBD calls. Results appear in two places:
+From the Actions tab, run **Play-call predictability** and choose the season and scoring mode. The run uses about 18 CFBD calls. Results appear in two places:
 
 - **The job summary:** the ranking table.
 - **The `predictability-<season>` artifact:**
@@ -25,7 +25,7 @@ python -m unittest discover -s analysis/predictability/tests
 
 Each run or pass play from scrimmage by an FBS offense counts as one call.
 
-- **Counted as passes:** sacks, plus scrambles the play description identifies.
+- **Counted as passes:** sacks, plus any scramble the play description identifies. In practice CFBD's descriptions don't mark scrambles (none were found in 2026), so scrambles count as runs.
 - **Fumbles and safeties:** classified from the play description.
 - **Dropped:** kneels, spikes, penalties that wipe out the play, special teams, two-point tries, and garbage time. Garbage time follows CFBD's rule: a margin over 43 points in the first quarter, 37 in the second, 27 in the third or 21 in the fourth.
 
@@ -50,13 +50,18 @@ The play-by-play records what happened, not what was called. A handed-off RPO co
    - the last two minutes of a half.
 
    The adjustments are shrunk toward zero (ridge penalties, tuned for out-of-sample accuracy), so a handful of plays can't define a team.
-3. **Scoring.** The scoring runs in order through the season, like a defense studying film. Each game is predicted from the team's earlier games only. A team's games start counting once it has 150 calls behind it, and a team needs 150 scored calls to be ranked.
+3. **Scoring.** Every game is predicted out of sample, so the model never scores a call it learned from. Scoring has two modes:
+   - **`loo`, the default:** each game is predicted from all of the team's other games. Every game counts, which matters at midseason, when a team has only six or seven.
+   - **`rolling`:** each game is predicted from the team's earlier games only, like a defense studying film. It's stricter, but a team's first two games or so can't be scored.
+
+   A game is scored when the team has at least 100 calls outside it, and a team needs 100 scored calls to be ranked.
 
 ## The columns
 
 | Column | Meaning |
 | --- | --- |
-| `predictability` | 100 × (1 − bits of surprise per call). 0 is a coin flip, 100 would be perfectly predictable. Teams are ranked by it. |
+| `predictability` | 100 × (1 − bits of surprise per call). 0 is a coin flip, 100 would be perfectly predictable. Teams are ranked by it. A lopsided run/pass mix alone makes a team predictable; Air Force, Navy and Army top the list mostly for that reason. |
+| `beyond_pass_rate` | The predictability that comes from situation and habit: points added over a guess that knows only the team's pass rate. Sort by this to find teams whose calls are predictable for reasons other than their mix. |
 | `called_right` | How often the model's guess (pass at 50% or more) matched the call |
 | `called_right_pass_rate_only` | The same, for a guess that knows only the team's pass rate |
 | `bits_per_call`, `bits_se` | Out-of-sample log loss in bits, and its standard error |
@@ -85,4 +90,4 @@ The current rows:
 - **California:** Pat McCann took over from Jordan Somerville at halftime of Week 5 at UNLV.
 - **Arizona State:** Marcus Arroyo took over from Kenny Dillingham starting in Week 6.
 
-A stint needs 150 scored calls before it is ranked, so a recent change shows up in the unranked list until it has enough games.
+A stint needs 100 scored calls before it is ranked, so a recent change shows up in the unranked list until it has enough games.

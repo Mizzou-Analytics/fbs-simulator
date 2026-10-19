@@ -17,7 +17,7 @@ PASS_TYPES = {
     "Interception Return Touchdown",
 }
 # Plays CFBD files by their outcome; the description says what the call was.
-BY_TEXT_TYPES = {"Fumble Recovery (Own)", "Fumble Recovery (Opponent)", "Fumble Return Touchdown", "Safety"}
+BY_TEXT_TYPES = {"Fumble", "Fumble Recovery (Own)", "Fumble Recovery (Opponent)", "Fumble Return Touchdown", "Safety"}
 
 PASS_TEXT = re.compile(r"\bpass\b|\bsacked\b|\bscrambles?\b", re.I)
 RUSH_TEXT = re.compile(r"\b(run|rush|rushed)\b", re.I)
